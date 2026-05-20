@@ -36,6 +36,13 @@ export default function AdminScreen() {
 
   const editProduct = (product: Product) => setDraft({ ...product });
 
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/(tabs)");
+  };
 
   const saveDraft = async () => {
     if (!draft.size.trim() || !draft.use.trim()) {
@@ -68,7 +75,7 @@ export default function AdminScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }}>
       <ScrollView showsVerticalScrollIndicator={false}>
         <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <TouchableOpacity style={styles.backBtn} onPress={goBack}>
             <ArrowLeft size={20} color={Colors.white} />
           </TouchableOpacity>
           <Text style={styles.headerLabel}>ADMIN PANEL</Text>

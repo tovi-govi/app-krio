@@ -16,6 +16,14 @@ import { User, Phone, Mail, LogOut, ArrowLeft, Shield } from "lucide-react-nativ
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
 
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/(tabs)");
+  };
+
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
       { text: "Cancel", style: "cancel" },
@@ -42,7 +50,7 @@ export default function ProfileScreen() {
           colors={[Colors.primary, Colors.primaryLight]}
           style={styles.header}
         >
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <TouchableOpacity style={styles.backBtn} onPress={goBack}>
             <ArrowLeft size={20} color={Colors.white} />
           </TouchableOpacity>
 

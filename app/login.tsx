@@ -32,6 +32,14 @@ export default function LoginScreen() {
   const [adminPass, setAdminPass] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace("/login");
+  };
+
   const getCustomerDetails = () => {
     const customerName = name.trim();
     const cleanPhone = phone.replace(/\D/g, "");
@@ -152,7 +160,7 @@ export default function LoginScreen() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
           <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.topSection}>
-            <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <TouchableOpacity style={styles.backBtn} onPress={goBack}>
               <ArrowLeft size={20} color={Colors.white} />
             </TouchableOpacity>
             <View style={styles.logoArea}>
