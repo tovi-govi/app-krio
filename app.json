@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "Krio-H\u2082O",
+    "slug": "krioh2o-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "krioh2o",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#0f2d6b"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0f2d6b"
+      },
+      "package": "com.krioh2o.app"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Krio-H2O to use your current location for delivery address."
+        }
+      ]
+    ],
+    "sdkVersion": "53.0.0",
+    "ios": {
+      "bundleIdentifier": "com.krioh2o.app"
+    }
+  }
+}
