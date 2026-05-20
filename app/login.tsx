@@ -18,7 +18,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Colors, Radius, Shadow } from "@/constants/theme";
 
 type Mode = "customer" | "admin";
-const API_BASE = process.env.EXPO_PUBLIC_API_BASE || process.env.EXPO_PUBLIC_PAYMENT_API_BASE || "";
+const API_BASE = process.env.EXPO_PUBLIC_API_BASE || "";
 
 export default function LoginScreen() {
   const { loginCustomer, loginAdmin } = useAuth();
@@ -59,7 +59,7 @@ export default function LoginScreen() {
     if (!details) return;
 
     if (!API_BASE) {
-      Alert.alert("OTP backend missing", "Add EXPO_PUBLIC_API_BASE or EXPO_PUBLIC_PAYMENT_API_BASE in .env.");
+      Alert.alert("OTP backend missing", "Add EXPO_PUBLIC_API_BASE in .env.");
       return;
     }
 

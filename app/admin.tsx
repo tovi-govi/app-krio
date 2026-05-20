@@ -98,7 +98,7 @@ export default function AdminScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.productTitle}>{note.title}</Text>
-                <Text style={styles.productSub}>{note.message}</Text>
+                <Text style={styles.productSub}>{(note as any).message2 || note.message}</Text>
                 <Text style={styles.productMeta}>Order: {note.orderId} • ₹{note.total}</Text>
               </View>
               {!note.read ? (

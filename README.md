@@ -74,8 +74,6 @@ TWO_FACTOR_API_KEY=your_2factor_api_key
 # Optional: only if you configure a named OTP template in 2Factor.
 TWO_FACTOR_TEMPLATE_NAME=KRIOH2O
 
-RAZORPAY_KEY_ID=rzp_test_xxxxx
-RAZORPAY_KEY_SECRET=your_razorpay_key_secret
 ```
 
 ## Admin login
@@ -152,11 +150,11 @@ admins/
 
 ## Notes
 
-- If `EXPO_PUBLIC_API_BASE` is missing, customer OTP login and Razorpay payment checks cannot reach your backend.
+- If `EXPO_PUBLIC_API_BASE` is missing, customer OTP login cannot reach your backend.
 - If `TWO_FACTOR_API_KEY` is missing on the backend, customer OTP login cannot send SMS.
 - The first Firebase connection seeds default products if the `products` collection is empty.
 - Orders are written with a Firestore transaction, so stock is reduced safely when an order is placed.
-- Payment is not actually verified by a payment gateway yet. The app records the UTR and lets the admin mark payment as verified/rejected.
+- Razorpay is disabled for now. Orders are placed as Pay on Delivery and admin can mark payment as verified/rejected.
 - Product image upload uses Firebase Storage from the admin panel. After uploading, tap **Save Product**.
 
 ## Amazon-style order notification flow
@@ -189,38 +187,11 @@ Payment flow:
 
 This is an in-app admin notification system. Real push notifications when the admin app is closed would need Expo Notifications plus a small backend/cloud function later.
 
-## Razorpay automated payment flow
+## Payment flow
 
-This build uses Razorpay Payment Links so it still works in Expo Go. The app does **not** place the order after opening payment. It only places the order after the backend checks Razorpay and confirms that the payment link is paid.
+Razorpay is currently excluded. Customer checkout places a Pay on Delivery order after address validation. Admin can collect payment offline and then mark the order as verified, sent, delivered, or cancelled.
 
-### Required server environment variables
-
-Add these in Vercel project settings, not in the Expo app:
-
-```env
-RAZORPAY_KEY_ID=rzp_test_xxxxx
-RAZORPAY_KEY_SECRET=your_razorpay_key_secret
-```
-
-### Required Expo environment variable
-
-Add this in the app `.env`:
-
-```env
-EXPO_PUBLIC_PAYMENT_API_BASE=https://your-vercel-project.vercel.app
-```
-
-### Flow
-
-1. Customer fills address and taps **Pay with Razorpay**.
-2. `/api/razorpay/create-payment-link` creates a Razorpay Payment Link.
-3. App opens the Razorpay link.
-4. Customer pays using UPI/card/netbanking/wallet.
-5. Customer returns to app and taps **Check Payment & Place Order**.
-6. `/api/razorpay/check-payment-link` fetches the payment link from Razorpay.
-7. Only if Razorpay status is paid/captured does the app create the Firestore order, reduce stock, and notify admin.
-
-For production, keep Firestore write rules locked down and move the final order creation into the backend or a Cloud Function so users cannot bypass the client.
+For production, keep Firestore write rules locked down and consider moving final order creation into the backend or a Cloud Function so users cannot bypass the client.
 
 
 2 factor password :  998100
