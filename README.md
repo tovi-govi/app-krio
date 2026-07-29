@@ -1,0 +1,212 @@
+# Krio-H₂O Expo Firebase Inventory + Orders
+
+A React Native Expo Router app for customer ordering and admin inventory/order management.
+
+Key features:
+- Customer login with server-backed 2Factor SMS OTP
+- Firebase Firestore for products, orders, users, admins, and admin notifications
+- Firebase Storage for product image uploads
+- Admin panel with inventory CRUD, live notifications, order status updates, and payment verification
+- Expo web / Android / iOS support via `expo-router`
+
+## Quick start
+
+```bash
+npm install
+npx expo start -c
+```
+
+Open the app in Expo Go or an emulator. You can also run:
+
+```bash
+npm run android
+```
+
+## Environment setup
+
+Copy `.env.example` to `.env` and fill in your Firebase values plus the deployed backend URL.
+
+The app loads Firebase config from `app.config.js` and exposes it to the Expo client via `expo.extra`.
+
+### Required `.env` values
+
+```env
+EXPO_PUBLIC_FIREBASE_API_KEY=your_firebase_api_key
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.firebasestorage.app
+EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+EXPO_PUBLIC_FIREBASE_APP_ID=your_app_id
+EXPO_PUBLIC_API_BASE=https://your-vercel-project.vercel.app
+```
+
+### Backend environment variables
+
+Keep these values in your server or Vercel environment, not in the Expo client app.
+
+```env
+TWO_FACTOR_API_KEY=your_2factor_api_key
+
+# Optional: set only if you configure a named OTP template in 2Factor.
+TWO_FACTOR_TEMPLATE_NAME=KRIOH2O
+
+# Optional Razorpay support
+RAZORPAY_KEY_ID=your_razorpay_key_id
+RAZORPAY_KEY_SECRET=your_razorpay_key_secret
+```
+
+## Firebase setup
+
+1. Create a Firebase project.
+2. Add a **Web app** in Firebase project settings.
+3. Copy the Firebase config values into `.env`.
+4. Enable Firestore.
+5. Enable Firebase Storage if you want product image uploads.
+6. Enable Authentication -> Email/Password for admin login.
+
+## OTP login flow
+
+Customer login requires:
+1. Name
+2. 10-digit mobile number
+3. 2Factor SMS OTP verification
+
+The app calls the backend endpoints:
+
+```text
+POST /api/otp/send
+POST /api/otp/verify
+```
+
+The 2Factor API key must remain on the server only. Do not expose it in the Expo client environment.
+
+## Admin login setup
+
+1. In Firebase Console, enable **Authentication -> Sign-in method -> Email/Password**.
+2. Create an admin user in **Authentication -> Users**.
+3. In Firestore, create an admin document under `admins/`.
+
+Example by UID:
+
+```text
+admins/{firebaseAuthUid}
+  name: Krio Admin
+  role: admin
+  isActive: true
+```
+
+Example by email key:
+
+```text
+admins/{adminEmail}
+  name: Krio Admin
+  role: admin
+  isActive: true
+```
+
+Then sign in from the app's Admin tab with the user's email and password.
+
+## Firestore collections
+
+The app uses the following collections:
+
+- `products`
+- `orders`
+- `users`
+- `admins`
+- `adminNotifications`
+
+### Typical document shape
+
+`products/{productId}`
+- `name`
+- `size`
+- `use`
+- `emoji`
+- `price`
+- `stock`
+- `isActive`
+- `imageUrl`
+- `createdAt`
+- `updatedAt`
+
+`orders/{orderId}`
+- `items`
+- `total`
+- `customer`
+- `status`
+- `paymentStatus`
+- `paymentMethod`
+- `utr`
+- `createdAt`
+- `updatedAt`
+
+`users/{phoneNumber}`
+- `name`
+- `phone`
+- `email`
+- `role`
+- `createdAt`
+- `updatedAt`
+
+`admins/{adminId}`
+- `name`
+- `phone`
+- `role`
+- `isActive`
+- `createdAt`
+- `updatedAt`
+
+`adminNotifications/{notificationId}`
+- `orderId`
+- `read`
+- `createdAt`
+- `updatedAt`
+
+## Order flow
+
+- Customer places an order from the cart screen.
+- The app writes the order to `orders` and reduces product stock in a Firestore transaction.
+- The app also creates a notification document in `adminNotifications`.
+- The admin panel listens live for admin notifications.
+- Admin can mark the order as read, verify payment, send the order, deliver it, or cancel.
+
+Status flow:
+`Confirmed` → `Order Sent` → `Delivered`
+
+Payment flow:
+`Pending Verification` → `Verified`
+
+## Razorpay support
+
+Razorpay endpoints exist in `api/razorpay/create-payment-link.js` and `api/razorpay/check-payment-link.js`, but the checkout UI currently defaults to Pay on Delivery.
+
+To enable Razorpay, add `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` to your server environment and adjust the payment flow accordingly.
+
+## Notes
+
+- `EXPO_PUBLIC_API_BASE` must point to your deployed backend for OTP login to work.
+- `TWO_FACTOR_API_KEY` must be present on the server to send SMS OTP.
+- The app expects Firebase to be configured before starting.
+- Do not commit actual API keys or backend secrets.
+
+## Useful commands
+
+```bash
+npm install
+npx expo start -c
+npm run android
+```
+
+## Project structure
+
+Key folders:
+- `app/` – Expo Router screens and admin flow
+- `api/` – serverless backend endpoints for OTP and Razorpay
+- `context/` – auth and cart state management
+- `services/` – Firebase initialization
+- `assets/` – static assets and logos
+
+---
+
+Generated by the current repo setup for Krio-H₂O inventory and orders management.

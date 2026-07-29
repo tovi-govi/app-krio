@@ -1,0 +1,336 @@
+import { useState } from "react";
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
+import * as Location from "expo-location";
+import { Briefcase, CreditCard, Home, MapPin, Minus, Navigation, Plus, ShoppingCart, Trash2 } from "lucide-react-native";
+import { router } from "expo-router";
+import { Colors, Radius, Shadow } from "@/constants/theme";
+import { DeliveryAddress, Order, useCart } from "@/context/CartContext";
+import { useAuth } from "@/context/AuthContext";
+
+type AddressLabel = "Home" | "Work" | "Other";
+
+type PickedLocation = {
+  latitude: number;
+  longitude: number;
+};
+
+function formatCoordinate(value: number) {
+  return value.toFixed(6);
+}
+
+function buildMapLabel(address: Location.LocationGeocodedAddress | undefined, location: PickedLocation) {
+  const parts = [
+    address?.name,
+    address?.street,
+    address?.district,
+    address?.city,
+    address?.region,
+    address?.postalCode,
+  ].filter(Boolean);
+  const label = parts.length > 0 ? parts.join(", ") : "Current GPS location";
+  return `${label} (${formatCoordinate(location.latitude)}, ${formatCoordinate(location.longitude)})`;
+}
+
+export default function CartScreen() {
+  const { user } = useAuth();
+  const { cart, orders, totalItems, total, increaseQuantity, decreaseQuantity, removeFromCart, addOrder, organizations } = useCart();
+  const displayedOrders = orders;
+
+  const [name, setName] = useState(user?.name ?? "");
+  const [phone, setPhone] = useState(user?.phone ?? "");
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState<string | undefined>(undefined);
+  const [mapPicked, setMapPicked] = useState(false);
+  const [mapLabel, setMapLabel] = useState("");
+  const [pickedLocation, setPickedLocation] = useState<PickedLocation | null>(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [houseNo, setHouseNo] = useState("");
+  const [landmark, setLandmark] = useState("");
+  const [addressLabel, setAddressLabel] = useState<AddressLabel>("Home");
+  const [placingOrder, setPlacingOrder] = useState(false);
+
+  const pickAddressOnMap = async () => {
+    setLocationLoading(true);
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== "granted") {
+        Alert.alert("Location permission needed", "Allow location access so we can pin the delivery address.");
+        return;
+      }
+
+      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const location = {
+        latitude: current.coords.latitude,
+        longitude: current.coords.longitude,
+      };
+
+      let reverseAddress: Location.LocationGeocodedAddress | undefined;
+      try {
+        reverseAddress = (await Location.reverseGeocodeAsync(location))[0];
+      } catch {}
+
+      setPickedLocation(location);
+      setMapPicked(true);
+      setMapLabel(buildMapLabel(reverseAddress, location));
+
+      const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${location.latitude},${location.longitude}`;
+      await Linking.openURL(mapsUrl).catch(() => undefined);
+      Alert.alert("Location pinned", "We saved your GPS pin. Now add the flat/house number and landmark.");
+    } catch (error: any) {
+      Alert.alert("Location failed", error.message || "Could not get your current location.");
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+
+  const getAddress = (): DeliveryAddress => ({
+    mapLabel: mapLabel.trim(),
+    latitude: pickedLocation?.latitude,
+    longitude: pickedLocation?.longitude,
+    houseNo: houseNo.trim(),
+    landmark: landmark.trim() || undefined,
+    label: addressLabel,
+  });
+
+  const validateDetails = () => {
+    const cleanPhone = phone.replace(/\D/g, "");
+    if (cart.length === 0) return "Add products before checkout.";
+    if (!user) return "Please login as admin before placing an order.";
+    if (!name.trim() || !/^\d{10}$/.test(cleanPhone)) return "Enter delivery recipient name and a valid 10-digit phone number.";
+    if (!selectedOrganizationId) return "Select an organization for this order.";
+    if (!mapPicked || !mapLabel.trim()) return "Pick the delivery location on map first.";
+    if (!houseNo.trim()) return "Enter flat/house number after choosing the map location.";
+    return "";
+  };
+
+  const placeOrder = async () => {
+    const error = validateDetails();
+    if (error) {
+      Alert.alert("Checkout incomplete", error);
+      if (error.includes("login")) router.push("/login");
+      return;
+    }
+
+    setPlacingOrder(true);
+    try {
+      const organization = organizations.find((org) => org.id === selectedOrganizationId);
+      const order: Order = {
+        id: `KRIO-${Date.now()}`,
+        items: cart,
+        total,
+        customer: { name: name.trim(), phone: phone.replace(/\D/g, ""), address: getAddress() },
+        organizationId: organization?.id,
+        organizationName: organization?.name,
+        status: "Pending Payment",
+        paymentStatus: "Pending Verification",
+        paymentMethod: "Pay on Delivery",
+        createdAt: new Date().toISOString(),
+      };
+
+      await addOrder(order);
+      setMapPicked(false);
+      setMapLabel("");
+      setPickedLocation(null);
+      setHouseNo("");
+      setLandmark("");
+      Alert.alert("Order placed", `Order ${order.id} has been sent to admin. Payment can be collected on delivery.`);
+    } catch (error: any) {
+      Alert.alert("Order failed", error.message || "Could not place order right now.");
+    } finally {
+      setPlacingOrder(false);
+    }
+  };
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }}>
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.header}>
+          <Text style={styles.headerLabel}>CART & ORDER</Text>
+          <Text style={styles.headerTitle}>Checkout</Text>
+          <Text style={styles.headerSub}>Map address - place order - admin confirmation</Text>
+        </LinearGradient>
+
+        <View style={styles.content}>
+          <Text style={styles.sectionTitle}>Cart Items</Text>
+          {cart.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <ShoppingCart size={34} color={Colors.primary} />
+              <Text style={styles.emptyTitle}>Your cart is empty</Text>
+              <Text style={styles.emptyText}>Go to Products and add bottles or jars.</Text>
+            </View>
+          ) : cart.map((item) => (
+            <View key={item.id} style={styles.cartCard}>
+              <Text style={styles.itemEmoji}>{item.emoji}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.itemName}>{item.size}</Text>
+                <Text style={styles.itemUse}>{item.use}</Text>
+                <Text style={styles.itemPrice}>Rs. {item.price} x {item.quantity}</Text>
+              </View>
+              <View style={styles.qtyBox}>
+                <Pressable onPress={() => decreaseQuantity(item.id)} style={styles.qtyButton}>
+                  <Minus size={14} color={Colors.primary} />
+                </Pressable>
+                <Text style={styles.qtyText}>{item.quantity}</Text>
+                <Pressable
+                  onPress={() => {
+                    const ok = increaseQuantity(item.id);
+                    if (!ok) Alert.alert("Stock limit", "No more stock available for this item.");
+                  }}
+                  style={styles.qtyButton}
+                >
+                  <Plus size={14} color={Colors.primary} />
+                </Pressable>
+              </View>
+              <Pressable onPress={() => removeFromCart(item.id)} style={styles.deleteButton}>
+                <Trash2 size={17} color={Colors.error} />
+              </Pressable>
+            </View>
+          ))}
+
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Total Items</Text>
+              <Text style={styles.summaryValue}>{totalItems}</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.totalLabel}>Grand Total</Text>
+              <Text style={styles.totalValue}>Rs. {total}</Text>
+            </View>
+          </View>
+
+          <Text style={styles.sectionTitle}>Delivery Details</Text>
+          <View style={styles.formCard}>
+            <TextInput value={name} onChangeText={setName} placeholder="Recipient name" placeholderTextColor={Colors.muted} style={styles.input} />
+            <TextInput value={phone} onChangeText={setPhone} placeholder="Recipient phone number" placeholderTextColor={Colors.muted} keyboardType="phone-pad" maxLength={10} style={styles.input} />
+            <Text style={{ color: Colors.muted, marginTop: 6, fontSize: 12 }}>Assign order to organization</Text>
+            <View style={styles.pickerCard}>
+              {organizations.length === 0 ? (
+                <Text style={styles.noOrders}>No organizations available.</Text>
+              ) : (
+                organizations.map((org) => (
+                  <TouchableOpacity
+                    key={org.id}
+                    style={[
+                      styles.orgOption,
+                      selectedOrganizationId === org.id && styles.orgOptionSelected,
+                    ]}
+                    onPress={() => setSelectedOrganizationId(org.id)}
+                  >
+                    <Text style={[styles.orgOptionText, selectedOrganizationId === org.id && styles.orgOptionTextSelected]}>{org.name}</Text>
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
+          </View>
+
+          <Text style={styles.sectionTitle}>Delivery Address</Text>
+          <View style={styles.formCard}>
+            <TouchableOpacity style={styles.mapCard} onPress={pickAddressOnMap} disabled={locationLoading}>
+              <View style={styles.mapPin}><MapPin size={24} color={Colors.white} /></View>
+              <Text style={styles.mapTitle}>{locationLoading ? "Finding your location..." : mapPicked ? "Location pinned" : "Pin current location"}</Text>
+              <Text style={styles.mapText}>{mapPicked ? mapLabel : "Tap to capture your GPS pin and preview it in Google Maps."}</Text>
+              <View style={styles.mapButton}>
+                <Navigation size={14} color={Colors.primary} />
+                <Text style={styles.mapButtonText}>{locationLoading ? "Getting GPS" : mapPicked ? "Preview Map" : "Use GPS"}</Text>
+              </View>
+            </TouchableOpacity>
+            <TextInput value={houseNo} onChangeText={setHouseNo} placeholder="Flat / house no / floor / building" placeholderTextColor={Colors.muted} style={styles.input} />
+            <TextInput value={landmark} onChangeText={setLandmark} placeholder="Landmark (optional)" placeholderTextColor={Colors.muted} style={styles.input} />
+            <View style={styles.labelRow}>
+              {(["Home", "Work", "Other"] as AddressLabel[]).map((label) => (
+                <TouchableOpacity key={label} style={[styles.labelChip, addressLabel === label && styles.labelChipActive]} onPress={() => setAddressLabel(label)}>
+                  {label === "Home" ? <Home size={14} color={addressLabel === label ? Colors.white : Colors.primary} /> : <Briefcase size={14} color={addressLabel === label ? Colors.white : Colors.primary} />}
+                  <Text style={[styles.labelChipText, addressLabel === label && styles.labelChipTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          <Text style={styles.sectionTitle}>Payment</Text>
+          <View style={styles.paymentCard}>
+            <CreditCard size={34} color={Colors.primary} />
+            <Text style={styles.bankTitle}>Pay on Delivery</Text>
+            <Text style={styles.paymentHint}>Razorpay is disabled for now. Admin can confirm payment after collection.</Text>
+            <TouchableOpacity style={[styles.confirmButton, (placingOrder || cart.length === 0) && styles.disabledButton]} onPress={placeOrder} disabled={placingOrder || cart.length === 0}>
+              <Text style={styles.payButtonText}>{placingOrder ? "Placing order..." : `Place Order - Rs. ${total}`}</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.sectionTitle}>Order History</Text>
+          {displayedOrders.length === 0 ? <Text style={styles.noOrders}>No previous orders yet.</Text> : displayedOrders.map((order) => (
+            <View key={order.id} style={styles.orderCard}>
+              <View style={styles.orderTop}>
+                <Text style={styles.orderId}>{order.id}</Text>
+                <View style={styles.confirmedPill}><Text style={styles.confirmedText}>{order.status}</Text></View>
+              </View>
+              <Text style={styles.orderText}>{new Date(order.createdAt).toLocaleString()} - Rs. {order.total} - {order.paymentMethod}</Text>
+              <Text style={styles.orderText}>Payment: {order.paymentStatus || "Pending"}</Text>
+              <Text style={styles.orderText}>{order.items.map((item) => `${item.size} x ${item.quantity}`).join(", ")}</Text>
+              <Text style={styles.orderText}>{order.customer.address.label}: {order.customer.address.houseNo}, {order.customer.address.mapLabel}{order.customer.address.landmark ? `, near ${order.customer.address.landmark}` : ""}</Text>
+            </View>
+          ))}
+        </View>
+        <View style={{ height: 24 }} />
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: { paddingHorizontal: 20, paddingTop: 26, paddingBottom: 36 },
+  headerLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 2, color: "rgba(255,255,255,0.82)", marginBottom: 10 },
+  headerTitle: { fontSize: 30, fontWeight: "900", color: Colors.white },
+  headerSub: { marginTop: 8, fontSize: 14, color: "rgba(255,255,255,0.78)", lineHeight: 20 },
+  content: { padding: 20, gap: 14 },
+  sectionTitle: { fontSize: 18, fontWeight: "900", color: Colors.foreground, marginTop: 8 },
+  emptyCard: { backgroundColor: Colors.card, borderRadius: Radius.xl, padding: 22, alignItems: "center", borderWidth: 1, borderColor: Colors.border, ...Shadow.card },
+  emptyTitle: { fontSize: 17, fontWeight: "800", color: Colors.foreground, marginTop: 10 },
+  emptyText: { fontSize: 13, color: Colors.muted, marginTop: 4 },
+  cartCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: 14, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: Colors.border, ...Shadow.card },
+  itemEmoji: { fontSize: 26 },
+  itemName: { fontSize: 15, fontWeight: "800", color: Colors.foreground },
+  itemUse: { fontSize: 12, color: Colors.muted, marginTop: 2 },
+  itemPrice: { fontSize: 13, fontWeight: "800", color: Colors.secondary, marginTop: 5 },
+  qtyBox: { flexDirection: "row", alignItems: "center", backgroundColor: Colors.mutedBg, borderRadius: Radius.full, padding: 4, gap: 7 },
+  qtyButton: { width: 26, height: 26, borderRadius: Radius.full, alignItems: "center", justifyContent: "center", backgroundColor: Colors.white },
+  qtyText: { minWidth: 14, textAlign: "center", fontWeight: "800", color: Colors.foreground },
+  deleteButton: { padding: 5 },
+  summaryCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: 16, borderWidth: 1, borderColor: Colors.border, gap: 10, ...Shadow.card },
+  summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  summaryLabel: { color: Colors.muted, fontSize: 14 },
+  summaryValue: { color: Colors.foreground, fontSize: 15, fontWeight: "800" },
+  totalLabel: { color: Colors.foreground, fontSize: 17, fontWeight: "800" },
+  totalValue: { color: Colors.secondary, fontSize: 22, fontWeight: "900" },
+  formCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: 14, gap: 10, borderWidth: 1, borderColor: Colors.border, ...Shadow.card },
+  input: { backgroundColor: Colors.mutedBg, borderRadius: Radius.md, paddingHorizontal: 14, paddingVertical: 12, fontSize: 14, color: Colors.foreground },
+  mapCard: { backgroundColor: Colors.mutedBg, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, padding: 18, alignItems: "center" },
+  mapPin: { width: 52, height: 52, borderRadius: 26, backgroundColor: Colors.primary, alignItems: "center", justifyContent: "center", marginBottom: 8 },
+  mapTitle: { fontSize: 16, fontWeight: "900", color: Colors.foreground },
+  mapText: { fontSize: 12, color: Colors.muted, textAlign: "center", marginTop: 5 },
+  mapButton: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: Colors.white, borderRadius: Radius.full, paddingHorizontal: 14, paddingVertical: 8, marginTop: 12 },
+  mapButtonText: { color: Colors.primary, fontWeight: "900", fontSize: 12 },
+  labelRow: { flexDirection: "row", gap: 8 },
+  labelChip: { flex: 1, flexDirection: "row", gap: 6, justifyContent: "center", alignItems: "center", borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.border, paddingVertical: 10 },
+  labelChipActive: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  labelChipText: { color: Colors.primary, fontWeight: "800", fontSize: 12 },
+  labelChipTextActive: { color: Colors.white },
+  paymentCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: 18, alignItems: "center", borderWidth: 1, borderColor: Colors.border, ...Shadow.card },
+  paymentHint: { marginTop: 8, fontSize: 12, color: Colors.muted, textAlign: "center", lineHeight: 18 },
+  bankTitle: { fontSize: 16, fontWeight: "800", color: Colors.foreground, marginTop: 8 },
+  confirmButton: { marginTop: 14, backgroundColor: Colors.primary, borderRadius: Radius.full, paddingVertical: 13, paddingHorizontal: 22, alignItems: "center", justifyContent: "center", width: "100%" },
+  disabledButton: { opacity: 0.5 },
+  payButtonText: { color: Colors.white, fontSize: 14, fontWeight: "900" },
+  noOrders: { color: Colors.muted, fontSize: 13, marginBottom: 6 },
+  pickerCard: { marginTop: 8, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.mutedBg, padding: 10 },
+  orgOption: { paddingVertical: 10, paddingHorizontal: 12, borderRadius: Radius.md, marginBottom: 8, backgroundColor: Colors.white },
+  orgOptionSelected: { backgroundColor: Colors.primary, borderColor: Colors.primary, borderWidth: 1 },
+  orgOptionText: { color: Colors.foreground, fontSize: 14, fontWeight: "700" },
+  orgOptionTextSelected: { color: Colors.white },
+  orderCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, padding: 14, borderWidth: 1, borderColor: Colors.border, ...Shadow.card },
+  orderTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  orderId: { fontSize: 14, fontWeight: "900", color: Colors.foreground },
+  confirmedPill: { backgroundColor: Colors.secondary + "18", borderRadius: Radius.full, paddingHorizontal: 9, paddingVertical: 4 },
+  confirmedText: { fontSize: 11, fontWeight: "900", color: Colors.secondary },
+  orderText: { fontSize: 12, color: Colors.muted, marginTop: 3, lineHeight: 17 },
+});
