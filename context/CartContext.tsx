@@ -143,18 +143,14 @@ type CartContextValue = {
   increaseQuantity: (id: string) => boolean;
   decreaseQuantity: (id: string) => void;
   removeFromCart: (id: string) => void;
-  clearCart: () => void;
   addOrder: (order: Order) => Promise<void>;
-  saveProduct: (product: Product) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
   saveOrganization: (organization: Organization) => Promise<void>;
   deleteOrganization: (id: string) => Promise<void>;
   savePlant: (plant: Plant) => Promise<void>;
   deletePlant: (id: string) => Promise<void>;
   addDeliveryRecord: (delivery: DeliveryRecord) => Promise<void>;
-  updateOrderStatus: (id: string, status: Order["status"], paymentStatus?: Order["paymentStatus"], deliveryData?: { fullCansLoaded?: number; emptyCansReturned?: number }) => Promise<void>;
   adminNotifications: AdminNotification[];
-  unreadAdminNotifications: number;
   markAdminNotificationRead: (id: string) => Promise<void>;
 };
 
@@ -280,7 +276,8 @@ function normalizeDeliveryRecord(id: string, data: any): DeliveryRecord {
   };
 }
 
-function cleanFirestoreData<T>(value: T, seen = new WeakSet<object>()): T {
+function cleanFirestoreData<T>(value: T, seen = new WeakSet<object>(), depth = 0): T {
+  if (depth > 12) return value;
   if (value === null || value === undefined) return value;
   if (typeof value !== "object") return value;
   if (value instanceof Date) return value;
@@ -298,12 +295,12 @@ function cleanFirestoreData<T>(value: T, seen = new WeakSet<object>()): T {
   seen.add(value as object);
 
   if (Array.isArray(value)) {
-    return value.map((item) => cleanFirestoreData(item, seen)) as any;
+    return value.map((item) => cleanFirestoreData(item, seen, depth + 1)) as any;
   }
 
   return Object.entries(value).reduce((result, [key, entryValue]) => {
     if (entryValue === undefined) return result;
-    const cleanedValue = cleanFirestoreData(entryValue, seen);
+    const cleanedValue = cleanFirestoreData(entryValue, seen, depth + 1);
     if (cleanedValue !== undefined) {
       (result as any)[key] = cleanedValue;
     }
@@ -472,7 +469,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
     totalItems,
     total,
     adminNotifications,
-    unreadAdminNotifications: adminNotifications.filter((item) => !item.read).length,
     addToCart: (product) => {
       const freshProduct = products.find((p) => p.id === product.id) ?? product;
       const currentQty = cart.find((item) => item.id === freshProduct.id)?.quantity ?? 0;
@@ -510,7 +506,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
     removeFromCart: (id) => {
       setCart((current) => current.filter((item) => item.id !== id));
     },
-    clearCart: () => setCart([]),
     addOrder: async (order) => {
       if (firebaseReady && db) {
         await runTransaction(db, async (transaction) => {
@@ -603,28 +598,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
         );
       }
       setCart([]);
-    },
-    saveProduct: async (product) => {
-      const cleanProduct: Product = {
-        ...product,
-        price: Number(product.price) || 0,
-        stock: Math.max(0, Number(product.stock) || 0),
-        isActive: Boolean(product.isActive),
-        imageUrl: product.imageUrl?.trim() || undefined,
-      };
-
-      if (firebaseReady && db) {
-        await setDoc(doc(db, "products", cleanProduct.id), {
-          ...cleanProduct,
-          updatedAt: serverTimestamp(),
-        }, { merge: true });
-      } else {
-        setProducts((current) => {
-          const exists = current.some((p) => p.id === cleanProduct.id);
-          if (exists) return current.map((p) => (p.id === cleanProduct.id ? cleanProduct : p));
-          return [cleanProduct, ...current];
-        });
-      }
     },
     addDeliveryRecord: async (delivery) => {
       console.log(`[CartContext] Saving delivery record:`, delivery);
@@ -774,26 +747,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
         setProducts((current) => current.filter((p) => p.id !== id));
       }
       setCart((current) => current.filter((item) => item.id !== id));
-    },
-    updateOrderStatus: async (id, status, paymentStatus, deliveryData) => {
-      if (firebaseReady && db) {
-        await setDoc(doc(db, "orders", id), {
-          status,
-          ...(paymentStatus ? { paymentStatus } : {}),
-          ...deliveryData,
-          updatedAt: serverTimestamp(),
-        }, { merge: true });
-        await setDoc(doc(db, "adminNotifications", id), { read: true, updatedAt: serverTimestamp() }, { merge: true });
-      } else {
-        setOrders((current) =>
-          current.map((order) =>
-            order.id === id
-              ? { ...order, status, paymentStatus: paymentStatus ?? order.paymentStatus, ...deliveryData }
-              : order
-          )
-        );
-        setAdminNotifications((current) => current.map((item) => (item.orderId === id ? { ...item, read: true } : item)));
-      }
     },
     markAdminNotificationRead: async (id) => {
       if (firebaseReady && db) {

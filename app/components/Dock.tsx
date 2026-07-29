@@ -8,7 +8,7 @@ export type DockItemData = {
   className?: string;
 };
 
-type DockProps = {
+export type DockProps = {
   items: DockItemData[];
   className?: string;
   distance?: number;

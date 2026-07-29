@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { ArrowLeft, Lock, Shield } from "lucide-react-native";
+import { Lock, Shield } from "lucide-react-native";
 import KrioLogo from "@/assets/logos/krio-logo.svg";
 import { useAuth } from "@/context/AuthContext";
 import { Colors, Radius, Shadow } from "@/constants/theme";
@@ -23,14 +23,6 @@ export default function LoginScreen() {
   const [staffUser, setStaffUser] = useState("");
   const [staffPass, setStaffPass] = useState("");
   const [loading, setLoading] = useState(false);
-
-  const goBack = () => {
-    if (router.canGoBack()) {
-      router.back();
-      return;
-    }
-    router.replace("/login");
-  };
 
   const submitLogin = async () => {
     if (!staffUser.trim() || !staffPass) {
@@ -140,6 +132,5 @@ const styles = StyleSheet.create({
   submitBtn: { marginTop: 8, borderRadius: Radius.full, overflow: "hidden", minHeight: 48 },
   submitGrad: { minHeight: 48, paddingVertical: 14, alignItems: "center", justifyContent: "center" },
   submitText: { color: Colors.white, fontSize: 15, fontWeight: "900" },
-  linkText: { color: Colors.primary, fontWeight: "800", textAlign: "center", marginTop: 16 },
   adminHint: { color: Colors.muted, fontSize: 12, textAlign: "center", marginTop: 16, lineHeight: 18 },
 });

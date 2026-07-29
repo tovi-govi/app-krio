@@ -1,42 +1,54 @@
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { FlatList, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Bell } from "lucide-react-native";
 import { Colors, Radius, Shadow } from "@/constants/theme";
-import { useCart } from "@/context/CartContext";
+import { AdminNotification, useCart } from "@/context/CartContext";
 
 export default function AdminNotificationsScreen() {
   const { adminNotifications, markAdminNotificationRead } = useCart();
 
-  return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Notifications</Text>
-        <Text style={styles.headerSub}>Review admin notifications and mark items as read once handled.</Text>
+  const renderNotificationItem = ({ item }: { item: AdminNotification }) => (
+    <View style={[styles.notificationCard, !item.read && styles.notificationUnread]}>
+      <View style={styles.notificationIcon}>
+        <Bell size={18} color={Colors.white} />
       </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.notificationTitle}>{item.title}</Text>
+        <Text style={styles.notificationBody}>{item.message}</Text>
+        <Text style={styles.notificationMeta}>
+          Order {item.orderId ?? "—"} • {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : ""}
+        </Text>
+      </View>
+      {!item.read ? (
+        <TouchableOpacity style={styles.markReadBtn} onPress={() => markAdminNotificationRead(item.id)}>
+          <Text style={styles.markReadText}>Mark read</Text>
+        </TouchableOpacity>
+      ) : null}
+    </View>
+  );
 
-      {adminNotifications.length === 0 ? (
+  return (
+    <FlatList<AdminNotification>
+      data={adminNotifications}
+      renderItem={renderNotificationItem}
+      keyExtractor={(item) => item.id}
+      ListHeaderComponent={
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Notifications ({adminNotifications.length})</Text>
+          <Text style={styles.headerSub}>Review admin notifications and mark items as read once handled.</Text>
+        </View>
+      }
+      ListEmptyComponent={
         <View style={styles.emptyCard}>
           <Text style={styles.emptyText}>No notifications found.</Text>
         </View>
-      ) : (
-        adminNotifications.map((notification) => (
-          <View key={notification.id} style={[styles.notificationCard, !notification.read && styles.notificationUnread]}>
-            <View style={styles.notificationIcon}>
-              <Bell size={18} color={Colors.white} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.notificationTitle}>{notification.title}</Text>
-              <Text style={styles.notificationBody}>{(notification as any).message2 || notification.message}</Text>
-              <Text style={styles.notificationMeta}>Order {notification.orderId ?? "—"} • ₹{notification.total ?? 0}</Text>
-            </View>
-            {!notification.read ? (
-              <TouchableOpacity style={styles.markReadBtn} onPress={() => markAdminNotificationRead(notification.id)}>
-                <Text style={styles.markReadText}>Mark read</Text>
-              </TouchableOpacity>
-            ) : null}
-          </View>
-        ))
-      )}
-    </ScrollView>
+      }
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+      initialNumToRender={10}
+      maxToRenderPerBatch={10}
+      windowSize={5}
+      removeClippedSubviews={Platform.OS === "android"}
+    />
   );
 }
 

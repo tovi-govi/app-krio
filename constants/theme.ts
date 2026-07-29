@@ -17,37 +17,12 @@ export const Colors = {
   info: "#3B82F6",
 };
 
-export const Fonts = {
-  regular: "System",
-  bold: "System",
-};
-
 export const Radius = {
-  xs: 6,
   sm: 8,
   md: 12,
   lg: 16,
   xl: 20,
   full: 999,
-};
-
-export const Spacing = {
-  xs: 4,
-  sm: 8,
-  md: 16,
-  lg: 24,
-  xl: 32,
-};
-
-export const TouchTarget = {
-  min: 44,
-  input: 48,
-};
-
-export const Layout = {
-  maxAdminWidth: 960,
-  maxFormWidth: 640,
-  maxModalWidth: 480,
 };
 
 export const Shadow = {

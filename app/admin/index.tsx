@@ -99,8 +99,13 @@ export default function AdminHomeScreen() {
   }, [isLoading, user]);
 
   if (isLoading || !user || user.role !== "admin") {
-    return null;
+    return <View style={{ flex: 1, backgroundColor: Colors.background }} />;
   }
+
+  const handleLogout = async () => {
+    router.replace("/login");
+    await logout();
+  };
 
   return (
     <SafeAreaView style={styles.screen}>
@@ -111,7 +116,7 @@ export default function AdminHomeScreen() {
               <KrioLogo width={120} height={36} />
               <Text style={styles.headerLabel}>ADMIN</Text>
             </View>
-            <TouchableOpacity style={styles.logoutBtn} onPress={async () => { await logout(); router.replace("/login"); }}>
+            <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
               <LogOut size={18} color={Colors.white} />
             </TouchableOpacity>
           </View>
@@ -147,9 +152,14 @@ export default function AdminHomeScreen() {
           )}
 
           {/* EXCEL SHEET GRID DISPLAY */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ width: "100%" }}>
-            <View style={[styles.excelGridCard, { minWidth: 420 }]}>
+          <View style={styles.scrollHintRow}>
+            <Text style={styles.scrollHintText}>↔️ Swipe horizontally to view full spreadsheet</Text>
+          </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={true} style={{ width: "100%" }}>
+            <View style={styles.excelGridCard}>
               <View style={styles.excelGridBanner}>
+                <Table size={16} color={Colors.white} />
                 <Text style={styles.excelBannerTitle}>
                   MONTHLY DELIVERY REPORT — {selectedInvoiceMonth ? formattedMonthLabel(selectedInvoiceMonth).toUpperCase() : ""}
                 </Text>
@@ -157,39 +167,84 @@ export default function AdminHomeScreen() {
 
               {/* Table Column Headers */}
               <View style={styles.excelHeaderRow}>
-                <Text style={[styles.excelHeaderCell, { flex: 2.2, textAlign: "left" }]}>Organization</Text>
-                <Text style={[styles.excelHeaderCell, { flex: 1, textAlign: "right" }]}>Delivered</Text>
-                <Text style={[styles.excelHeaderCell, { flex: 1, textAlign: "right" }]}>Picked Up</Text>
-                <Text style={[styles.excelHeaderCell, { flex: 1, textAlign: "center" }]}>Amount</Text>
+                <Text style={[styles.excelHeaderCell, styles.colOrg]}>Partner Organization</Text>
+                <Text style={[styles.excelHeaderCell, styles.colCans]}>20L Cans</Text>
+                <Text style={[styles.excelHeaderCell, styles.colEmpty]}>Empty 20L</Text>
+                <Text style={[styles.excelHeaderCell, styles.col200ml]}>200ml Packs</Text>
+                <Text style={[styles.excelHeaderCell, styles.col500ml]}>500ml Cases</Text>
+                <Text style={[styles.excelHeaderCell, styles.col1l]}>1L Cases</Text>
+                <Text style={[styles.excelHeaderCell, styles.colAmount]}>Amount</Text>
               </View>
 
               {/* Table Rows */}
               {!selectedMonthData || !selectedMonthData.hasData ? (
                 <View style={styles.excelEmptyRow}>
-                  <Text style={styles.excelEmptyText}>No deliveries found for this month.</Text>
+                  <Text style={styles.excelEmptyText}>No delivery runs recorded for this month.</Text>
                 </View>
               ) : (
                 selectedMonthData.rows.map((row, idx) => (
                   <View key={row.organizationName} style={[styles.excelDataRow, idx % 2 === 0 && styles.excelZebraRow]}>
-                    <Text style={[styles.excelCellText, { flex: 2.2, textAlign: "left", fontWeight: "700" }]}>{row.organizationName}</Text>
-                    <Text style={[styles.excelCellText, { flex: 1, textAlign: "right" }]}>{row.cansDelivered} cans</Text>
-                    <Text style={[styles.excelCellText, { flex: 1, textAlign: "right" }]}>{row.emptyCansPickedUp} cans</Text>
-                    <Text style={[styles.excelCellText, { flex: 1, textAlign: "center", color: Colors.muted }]}>{row.amount}</Text>
+                    <Text style={[styles.excelCellText, styles.colOrg, styles.excelOrgText]} numberOfLines={1}>
+                      {row.organizationName}
+                    </Text>
+
+                    <View style={[styles.colCans, styles.cellCenter]}>
+                      <Text style={[styles.cellBadge, row.cansDelivered > 0 ? styles.badgeActive : styles.badgeMuted]}>
+                        {row.cansDelivered ? `${row.cansDelivered} cans` : "0"}
+                      </Text>
+                    </View>
+
+                    <View style={[styles.colEmpty, styles.cellCenter]}>
+                      <Text style={[styles.cellBadge, row.emptyCansPickedUp > 0 ? styles.badgeWarning : styles.badgeMuted]}>
+                        {row.emptyCansPickedUp ? `${row.emptyCansPickedUp} cans` : "0"}
+                      </Text>
+                    </View>
+
+                    <View style={[styles.col200ml, styles.cellCenter]}>
+                      <Text style={[styles.cellBadge, row.cases200ml > 0 ? styles.badgeActive : styles.badgeMuted]}>
+                        {row.cases200ml ? `${row.cases200ml} packs` : "0"}
+                      </Text>
+                    </View>
+
+                    <View style={[styles.col500ml, styles.cellCenter]}>
+                      <Text style={[styles.cellBadge, row.cases500ml > 0 ? styles.badgeActive : styles.badgeMuted]}>
+                        {row.cases500ml ? `${row.cases500ml} cases` : "0"}
+                      </Text>
+                    </View>
+
+                    <View style={[styles.col1l, styles.cellCenter]}>
+                      <Text style={[styles.cellBadge, row.cases1l > 0 ? styles.badgeActive : styles.badgeMuted]}>
+                        {row.cases1l ? `${row.cases1l} cases` : "0"}
+                      </Text>
+                    </View>
+
+                    <Text style={[styles.excelCellText, styles.colAmount, styles.cellTextCenter, { color: Colors.muted }]}>
+                      {row.amount ? `₹${row.amount}` : "—"}
+                    </Text>
                   </View>
                 ))
               )}
 
               {/* Totals Row */}
               <View style={styles.excelTotalRow}>
-                <Text style={[styles.excelTotalText, { flex: 2.2, textAlign: "left" }]}>TOTAL</Text>
-                <Text style={[styles.excelTotalText, { flex: 1, textAlign: "right" }]}>
-                  {selectedMonthData ? selectedMonthData.totalCansDelivered : 0} cans
+                <Text style={[styles.excelTotalText, styles.colOrg]}>TOTAL SUMMARY</Text>
+                <Text style={[styles.excelTotalText, styles.colCans, styles.cellTextCenter]}>
+                  {selectedMonthData ? `${selectedMonthData.totalCansDelivered} cans` : "0"}
                 </Text>
-                <Text style={[styles.excelTotalText, { flex: 1, textAlign: "right" }]}>
-                  {selectedMonthData ? selectedMonthData.totalEmptyCansPickedUp : 0} cans
+                <Text style={[styles.excelTotalText, styles.colEmpty, styles.cellTextCenter]}>
+                  {selectedMonthData ? `${selectedMonthData.totalEmptyCansPickedUp} cans` : "0"}
                 </Text>
-                <Text style={[styles.excelTotalText, { flex: 1, textAlign: "center" }]}>
-                  0
+                <Text style={[styles.excelTotalText, styles.col200ml, styles.cellTextCenter]}>
+                  {selectedMonthData ? `${selectedMonthData.totalCases200ml || 0} packs` : "0"}
+                </Text>
+                <Text style={[styles.excelTotalText, styles.col500ml, styles.cellTextCenter]}>
+                  {selectedMonthData ? `${selectedMonthData.totalCases500ml || 0} cases` : "0"}
+                </Text>
+                <Text style={[styles.excelTotalText, styles.col1l, styles.cellTextCenter]}>
+                  {selectedMonthData ? `${selectedMonthData.totalCases1l || 0} cases` : "0"}
+                </Text>
+                <Text style={[styles.excelTotalText, styles.colAmount, styles.cellTextCenter]}>
+                  —
                 </Text>
               </View>
             </View>
@@ -303,18 +358,34 @@ const styles = StyleSheet.create({
   dropdownMenu: { backgroundColor: Colors.card, borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.border, overflow: "hidden" },
   dropdownMenuItem: { paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
   dropdownMenuText: { color: Colors.foreground, fontSize: 14 },
-  excelGridCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, overflow: "hidden", ...Shadow.card, marginTop: 4, width: "100%" },
-  excelGridBanner: { backgroundColor: Colors.primary, paddingVertical: 12, paddingHorizontal: 16 },
-  excelBannerTitle: { color: Colors.white, fontSize: 11, fontWeight: "900", letterSpacing: 1, textAlign: "center" },
-  excelHeaderRow: { flexDirection: "row", backgroundColor: "#0F2D6B", paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  excelHeaderCell: { color: Colors.white, fontSize: 11, fontWeight: "800", textTransform: "uppercase" },
-  excelDataRow: { flexDirection: "row", paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: Colors.border, alignItems: "center" },
+  scrollHintRow: { backgroundColor: Colors.mutedBg, paddingVertical: 6, paddingHorizontal: 12, borderRadius: Radius.full, alignSelf: "center", marginBottom: 2 },
+  scrollHintText: { fontSize: 11, fontWeight: "700", color: Colors.muted },
+  excelGridCard: { backgroundColor: Colors.white, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border, overflow: "hidden", ...Shadow.card, marginTop: 4, minWidth: 810 },
+  excelGridBanner: { backgroundColor: Colors.primary, paddingVertical: 10, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  excelBannerTitle: { color: Colors.white, fontSize: 12, fontWeight: "900", letterSpacing: 1 },
+  excelHeaderRow: { flexDirection: "row", backgroundColor: "#0F2D6B", paddingVertical: 12, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: Colors.border },
+  excelHeaderCell: { color: Colors.white, fontSize: 11, fontWeight: "800", textTransform: "uppercase", paddingHorizontal: 4 },
+  excelDataRow: { flexDirection: "row", paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: Colors.border, alignItems: "center" },
   excelZebraRow: { backgroundColor: "#F8FAFC" },
-  excelCellText: { fontSize: 13, color: Colors.foreground },
-  excelEmptyRow: { padding: 20, alignItems: "center" },
+  excelCellText: { fontSize: 13, color: Colors.foreground, paddingHorizontal: 4 },
+  excelOrgText: { fontWeight: "700" },
+  colOrg: { width: 190 },
+  colCans: { width: 100 },
+  colEmpty: { width: 100 },
+  col200ml: { width: 110 },
+  col500ml: { width: 110 },
+  col1l: { width: 100 },
+  colAmount: { width: 100 },
+  cellCenter: { alignItems: "center", justifyContent: "center" },
+  cellTextCenter: { textAlign: "center" },
+  cellBadge: { fontSize: 11, fontWeight: "800", paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.full, overflow: "hidden", textAlign: "center" },
+  badgeActive: { color: Colors.primary, backgroundColor: "#E0E7FF" },
+  badgeWarning: { color: "#D97706", backgroundColor: "#FEF3C7" },
+  badgeMuted: { color: Colors.muted, backgroundColor: Colors.mutedBg },
+  excelEmptyRow: { padding: 24, alignItems: "center" },
   excelEmptyText: { color: Colors.muted, fontSize: 13, fontStyle: "italic" },
-  excelTotalRow: { flexDirection: "row", backgroundColor: "#E2E8F0", paddingVertical: 14, paddingHorizontal: 14, borderTopWidth: 2, borderTopColor: Colors.primary, borderBottomWidth: 2, borderBottomColor: Colors.primary, alignItems: "center" },
-  excelTotalText: { fontSize: 13, fontWeight: "900", color: Colors.primary },
+  excelTotalRow: { flexDirection: "row", backgroundColor: "#E2E8F0", paddingVertical: 12, paddingHorizontal: 12, borderTopWidth: 2, borderTopColor: Colors.primary, borderBottomWidth: 2, borderBottomColor: Colors.primary, alignItems: "center" },
+  excelTotalText: { fontSize: 12, fontWeight: "900", color: Colors.primary, paddingHorizontal: 4 },
   downloadBtn: { backgroundColor: Colors.primary, borderRadius: Radius.full, minHeight: 44, paddingVertical: 12, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, ...Shadow.card },
   downloadText: { color: Colors.white, fontWeight: "900", fontSize: 14 },
   emptyCard: { backgroundColor: Colors.card, borderRadius: Radius.xl, padding: 24, borderWidth: 1, borderColor: Colors.border, alignItems: "center", gap: 8, ...Shadow.soft },

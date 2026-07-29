@@ -25,29 +25,14 @@ function DockIcon({ children, className = '' }: { children: ReactNode; className
   return <div className={`dock-icon ${className}`}>{children}</div>;
 }
 
-export type DockItemData = {
-  icon: ReactNode;
-  label: string;
-  onClick: () => void;
-  className?: string;
-};
-
-type DockProps = {
-  items: DockItemData[];
-  className?: string;
-  distance?: number;
-  panelHeight?: number;
-  baseItemSize?: number;
-  dockHeight?: number;
-  magnification?: number;
-  spring?: { mass: number; stiffness: number; damping: number };
-};
+import type { DockItemData, DockProps } from "./Dock";
+export type { DockItemData };
 
 export default function Dock({ items, className = '', panelHeight = 68 }: DockProps) {
   return (
     <div className="dock-outer">
       <div className={`dock-panel ${className}`} style={{ height: panelHeight }} role="toolbar" aria-label="Application dock">
-        {items.map((item, index) => (
+        {items.map((item: DockItemData, index: number) => (
           <DockItem key={index} onClick={item.onClick} className={item.className} label={item.label}>
             <DockIcon>{item.icon}</DockIcon>
             <DockLabel>{item.label}</DockLabel>

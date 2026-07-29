@@ -31,16 +31,15 @@ export default function ProfileScreen() {
         text: "Logout",
         style: "destructive",
         onPress: async () => {
-          await logout();
           router.replace("/login");
+          await logout();
         },
       },
     ]);
   };
 
   if (!user) {
-    router.replace("/login");
-    return null;
+    return <View style={{ flex: 1, backgroundColor: Colors.background }} />;
   }
 
   return (

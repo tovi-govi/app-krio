@@ -5,6 +5,9 @@ export type OrganizationInvoiceRow = {
   organizationName: string;
   cansDelivered: number;
   emptyCansPickedUp: number;
+  cases200ml: number;
+  cases500ml: number;
+  cases1l: number;
   amount: number;
 };
 
@@ -23,6 +26,9 @@ export type InvoiceAggregationResult = {
   rows: OrganizationInvoiceRow[];
   totalCansDelivered: number;
   totalEmptyCansPickedUp: number;
+  totalCases200ml: number;
+  totalCases500ml: number;
+  totalCases1l: number;
   hasData: boolean;
 };
 
@@ -87,16 +93,25 @@ export function aggregateMonthlyDeliveries(
 
     const fullCans = Number(delivery.fullCansLoaded) || 0;
     const emptyCans = Number(delivery.emptyCansReturned) || 0;
+    const c200 = Number(delivery.cases200mlDelivered) || 0;
+    const c500 = Number(delivery.cases500mlDelivered) || 0;
+    const c1l = Number(delivery.cases1lDelivered) || 0;
 
     if (existing) {
       existing.cansDelivered += fullCans;
       existing.emptyCansPickedUp += emptyCans;
+      existing.cases200ml += c200;
+      existing.cases500ml += c500;
+      existing.cases1l += c1l;
     } else {
       orgMap.set(orgName, {
         organizationId: delivery.organizationId,
         organizationName: orgName,
         cansDelivered: fullCans,
         emptyCansPickedUp: emptyCans,
+        cases200ml: c200,
+        cases500ml: c500,
+        cases1l: c1l,
         amount: 0,
       });
     }
@@ -108,6 +123,9 @@ export function aggregateMonthlyDeliveries(
 
   const totalCansDelivered = rows.reduce((sum, row) => sum + row.cansDelivered, 0);
   const totalEmptyCansPickedUp = rows.reduce((sum, row) => sum + row.emptyCansPickedUp, 0);
+  const totalCases200ml = rows.reduce((sum, row) => sum + row.cases200ml, 0);
+  const totalCases500ml = rows.reduce((sum, row) => sum + row.cases500ml, 0);
+  const totalCases1l = rows.reduce((sum, row) => sum + row.cases1l, 0);
 
   return {
     month,
@@ -117,6 +135,9 @@ export function aggregateMonthlyDeliveries(
     rows,
     totalCansDelivered,
     totalEmptyCansPickedUp,
+    totalCases200ml,
+    totalCases500ml,
+    totalCases1l,
     hasData: rows.length > 0,
   };
 }

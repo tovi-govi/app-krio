@@ -60,7 +60,7 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
   const BORDER_GRAY = "D3D3D3";
 
   // Title Block
-  worksheet.mergeCells("A1:D2");
+  worksheet.mergeCells("A1:G2");
   const titleCell = worksheet.getCell("A1");
   const orgSubtitle = organizationNameFilter && organizationNameFilter !== "ALL"
     ? `\nOrganization: ${organizationNameFilter}`
@@ -76,7 +76,15 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
   // Header Row
   const headerRow = worksheet.getRow(4);
   headerRow.height = 28;
-  headerRow.values = ["Organization Name", "Cans Delivered", "Empty Cans Picked Up", "Amount"];
+  headerRow.values = [
+    "Organization Name",
+    "20L Cans",
+    "Empty 20L",
+    "200ml Packs",
+    "500ml Cases",
+    "1L Cases",
+    "Amount",
+  ];
   headerRow.eachCell((cell, colNumber) => {
     cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: WHITE_HEX } };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: DARK_BLUE_HEX } };
@@ -87,7 +95,7 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
       right: { style: "thin", color: { argb: BORDER_GRAY } },
     };
     if (colNumber === 1) cell.alignment = { vertical: "middle", horizontal: "left" };
-    else if (colNumber === 2 || colNumber === 3) cell.alignment = { vertical: "middle", horizontal: "right" };
+    else if (colNumber >= 2 && colNumber <= 6) cell.alignment = { vertical: "middle", horizontal: "right" };
     else cell.alignment = { vertical: "middle", horizontal: "center" };
   });
 
@@ -101,6 +109,9 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
       row.organizationName || "Unknown Organization",
       row.cansDelivered || 0,
       row.emptyCansPickedUp || 0,
+      row.cases200ml || 0,
+      row.cases500ml || 0,
+      row.cases1l || 0,
       row.amount ? row.amount : "",
     ];
 
@@ -117,7 +128,7 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
         right: { style: "thin", color: { argb: BORDER_GRAY } },
       };
       if (colNumber === 1) cell.alignment = { vertical: "middle", horizontal: "left" };
-      else if (colNumber === 2 || colNumber === 3) {
+      else if (colNumber >= 2 && colNumber <= 6) {
         cell.alignment = { vertical: "middle", horizontal: "right" };
         cell.numFmt = "#,##0";
       } else cell.alignment = { vertical: "middle", horizontal: "center" };
@@ -129,7 +140,15 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
   // Totals Row
   const totalsRow = worksheet.getRow(currentRowIndex);
   totalsRow.height = 26;
-  totalsRow.values = ["TOTAL", totalCansDelivered, totalEmptyCansPickedUp, ""];
+  totalsRow.values = [
+    "TOTAL",
+    totalCansDelivered,
+    totalEmptyCansPickedUp,
+    result.totalCases200ml || 0,
+    result.totalCases500ml || 0,
+    result.totalCases1l || 0,
+    "",
+  ];
   totalsRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
     cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: DARK_BLUE_HEX } };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TOTALS_BG } };
@@ -140,7 +159,7 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
       right: { style: "thin", color: { argb: BORDER_GRAY } },
     };
     if (colNumber === 1) cell.alignment = { vertical: "middle", horizontal: "left" };
-    else if (colNumber === 2 || colNumber === 3) {
+    else if (colNumber >= 2 && colNumber <= 6) {
       cell.alignment = { vertical: "middle", horizontal: "right" };
       cell.numFmt = "#,##0";
     } else cell.alignment = { vertical: "middle", horizontal: "center" };
@@ -154,8 +173,9 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
     });
 
     if (colIndex === 0) column.width = Math.max(maxLength + 4, 25);
-    else if (colIndex === 1) column.width = Math.max(maxLength + 4, 18);
-    else if (colIndex === 2) column.width = Math.max(maxLength + 4, 22);
+    else if (colIndex === 1) column.width = Math.max(maxLength + 4, 15);
+    else if (colIndex === 2) column.width = Math.max(maxLength + 4, 15);
+    else if (colIndex >= 3 && colIndex <= 5) column.width = Math.max(maxLength + 4, 16);
     else column.width = Math.max(maxLength + 4, 15);
   });
 

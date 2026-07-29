@@ -109,12 +109,12 @@ export default function DeliveryScreen() {
   }, [isLoading, user]);
 
   if (isLoading || !user || user.role !== "delivery") {
-    return null;
+    return <View style={{ flex: 1, backgroundColor: Colors.background }} />;
   }
 
   const handleLogout = async () => {
-    await logout();
     router.replace("/login");
+    await logout();
   };
 
   const handleAddFullCans = (amount: number) => {
