@@ -1,34 +1,46 @@
-# Krio-H₂O Expo Firebase Inventory + Orders
+# Krio-H₂O Expo Firebase Management System
 
-A React Native Expo Router app for customer ordering and admin inventory/order management.
+A React Native Expo Router application for water delivery operations, partner organization management, bottling plant tracking, and admin inventory/invoice reporting.
 
-Key features:
-- Customer login with server-backed 2Factor SMS OTP
-- Firebase Firestore for products, orders, users, admins, and admin notifications
-- Firebase Storage for product image uploads
-- Admin panel with inventory CRUD, live notifications, order status updates, and payment verification
-- Expo web / Android / iOS support via `expo-router`
+---
 
-## Quick start
+## 🌟 Key Features
+
+- **Firebase Authentication & Access Control**: Secure Email & Password login for Staff, Delivery Personnel, and Admins.
+- **Partner Organization & Plant Tracking**: Comprehensive management of corporate partner locations and bottling plant facilities.
+- **Delivery Log Management**: Track 20L water cans loaded/returned as well as packaged bottle cases (200ml, 500ml, 1L).
+- **Monthly Excel Invoice Generator**: Native Excel (`.xlsx`) invoice & delivery report creation powered by `ExcelJS` with email export capabilities.
+- **Interactive Spreadsheet Dashboard**: Live Admin Excel preview grid complete with quantity badges, accounting totals, and horizontal scroll support.
+- **Virtualized High-Performance UI**: Fully virtualized lists (`FlatList` / `LazyList`) preventing lag on high-volume notification and delivery feeds.
+- **Multi-Platform Support**: Optimized for Android, iOS, and Expo Web using `expo-router`.
+
+---
+
+## 🚀 Quick Start
+
+### 1. Installation
 
 ```bash
 npm install
+```
+
+### 2. Start Development Server
+
+```bash
 npx expo start -c
 ```
 
-Open the app in Expo Go or an emulator. You can also run:
+To launch directly on an Android emulator or device:
 
 ```bash
 npm run android
 ```
 
-## Environment setup
+---
 
-Copy `.env.example` to `.env` and fill in your Firebase values plus the deployed backend URL.
+## 🔑 Environment Setup
 
-The app loads Firebase config from `app.config.js` and exposes it to the Expo client via `expo.extra`.
-
-### Required `.env` values
+Copy `.env.example` to `.env` and configure your Firebase credentials:
 
 ```env
 EXPO_PUBLIC_FIREBASE_API_KEY=your_firebase_api_key
@@ -37,176 +49,72 @@ EXPO_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
 EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.firebasestorage.app
 EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
 EXPO_PUBLIC_FIREBASE_APP_ID=your_app_id
-EXPO_PUBLIC_API_BASE=https://your-vercel-project.vercel.app
 ```
-
-### Backend environment variables
-
-Keep these values in your server or Vercel environment, not in the Expo client app.
-
-```env
-TWO_FACTOR_API_KEY=your_2factor_api_key
-
-# Optional: set only if you configure a named OTP template in 2Factor.
-TWO_FACTOR_TEMPLATE_NAME=KRIOH2O
-
-# Optional Razorpay support
-RAZORPAY_KEY_ID=your_razorpay_key_id
-RAZORPAY_KEY_SECRET=your_razorpay_key_secret
-```
-
-## Firebase setup
-
-1. Create a Firebase project.
-2. Add a **Web app** in Firebase project settings.
-3. Copy the Firebase config values into `.env`.
-4. Enable Firestore.
-5. Enable Firebase Storage if you want product image uploads.
-6. Enable Authentication -> Email/Password for admin login.
-
-## OTP login flow
-
-Customer login requires:
-1. Name
-2. 10-digit mobile number
-3. 2Factor SMS OTP verification
-
-The app calls the backend endpoints:
-
-```text
-POST /api/otp/send
-POST /api/otp/verify
-```
-
-The 2Factor API key must remain on the server only. Do not expose it in the Expo client environment.
-
-## Admin login setup
-
-1. In Firebase Console, enable **Authentication -> Sign-in method -> Email/Password**.
-2. Create an admin user in **Authentication -> Users**.
-3. In Firestore, create an admin document under `admins/`.
-
-Example by UID:
-
-```text
-admins/{firebaseAuthUid}
-  name: Krio Admin
-  role: admin
-  isActive: true
-```
-
-Example by email key:
-
-```text
-admins/{adminEmail}
-  name: Krio Admin
-  role: admin
-  isActive: true
-```
-
-Then sign in from the app's Admin tab with the user's email and password.
-
-## Firestore collections
-
-The app uses the following collections:
-
-- `products`
-- `orders`
-- `users`
-- `admins`
-- `adminNotifications`
-
-### Typical document shape
-
-`products/{productId}`
-- `name`
-- `size`
-- `use`
-- `emoji`
-- `price`
-- `stock`
-- `isActive`
-- `imageUrl`
-- `createdAt`
-- `updatedAt`
-
-`orders/{orderId}`
-- `items`
-- `total`
-- `customer`
-- `status`
-- `paymentStatus`
-- `paymentMethod`
-- `utr`
-- `createdAt`
-- `updatedAt`
-
-`users/{phoneNumber}`
-- `name`
-- `phone`
-- `email`
-- `role`
-- `createdAt`
-- `updatedAt`
-
-`admins/{adminId}`
-- `name`
-- `phone`
-- `role`
-- `isActive`
-- `createdAt`
-- `updatedAt`
-
-`adminNotifications/{notificationId}`
-- `orderId`
-- `read`
-- `createdAt`
-- `updatedAt`
-
-## Order flow
-
-- Customer places an order from the cart screen.
-- The app writes the order to `orders` and reduces product stock in a Firestore transaction.
-- The app also creates a notification document in `adminNotifications`.
-- The admin panel listens live for admin notifications.
-- Admin can mark the order as read, verify payment, send the order, deliver it, or cancel.
-
-Status flow:
-`Confirmed` → `Order Sent` → `Delivered`
-
-Payment flow:
-`Pending Verification` → `Verified`
-
-## Razorpay support
-
-Razorpay endpoints exist in `api/razorpay/create-payment-link.js` and `api/razorpay/check-payment-link.js`, but the checkout UI currently defaults to Pay on Delivery.
-
-To enable Razorpay, add `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` to your server environment and adjust the payment flow accordingly.
-
-## Notes
-
-- `EXPO_PUBLIC_API_BASE` must point to your deployed backend for OTP login to work.
-- `TWO_FACTOR_API_KEY` must be present on the server to send SMS OTP.
-- The app expects Firebase to be configured before starting.
-- Do not commit actual API keys or backend secrets.
-
-## Useful commands
-
-```bash
-npm install
-npx expo start -c
-npm run android
-```
-
-## Project structure
-
-Key folders:
-- `app/` – Expo Router screens and admin flow
-- `api/` – serverless backend endpoints for OTP and Razorpay
-- `context/` – auth and cart state management
-- `services/` – Firebase initialization
-- `assets/` – static assets and logos
 
 ---
 
-Generated by the current repo setup for Krio-H₂O inventory and orders management.
+## 🔥 Firebase Configuration
+
+1. Create a project in [Firebase Console](https://console.firebase.google.com/).
+2. Enable **Firestore Database**.
+3. Enable **Authentication** -> **Email/Password**.
+4. Enable **Firebase Storage** for product/facility image uploads.
+5. Create Admin & Staff records in Firestore:
+
+### Example Firestore Admin Document
+
+`admins/{firebaseAuthUid}` or `admins/{adminEmail}`:
+```json
+{
+  "name": "Krio Admin",
+  "phone": "+91 9876543210",
+  "role": "admin",
+  "isActive": true
+}
+```
+
+---
+
+## 📊 Firestore Data Structure
+
+- **`products`**: Catalog of 20L water cans and packaged bottle cases (200ml, 500ml, 1L).
+- **`organizations`**: Partner client directories (addresses, points of contact).
+- **`plants`**: Bottling plant locations and supply hubs.
+- **`deliveries`**: Delivery run logs tracking cans loaded, empty cans picked up, and packaged cases delivered.
+- **`orders`**: Customer orders and payment verification statuses.
+- **`adminNotifications`**: Live operational notifications for system administrators.
+
+---
+
+## 🛠️ Project Architecture
+
+```text
+├── app/
+│   ├── (tabs)/             # Tab navigation (Products, Cart, Admin)
+│   ├── admin/              # Admin dashboard, inventory, plants, organizations & notifications
+│   ├── organization/       # Organization details view
+│   ├── _layout.tsx         # Root layout with Auth & Cart state providers
+│   ├── delivery.tsx        # Delivery personnel workflow screen
+│   ├── login.tsx           # Staff & Admin authentication screen
+│   └── profile.tsx         # User profile and account management
+├── components/
+│   └── UI/                 # Reusable UI components (LazyList, SearchInput, ConfirmModal, Toast)
+├── constants/
+│   └── theme.ts            # Design system tokens (Colors, Radius, Shadow)
+├── context/
+│   ├── AuthContext.tsx     # Firebase Authentication provider
+│   └── CartContext.tsx     # Central app state (Orders, Deliveries, Products, Plants, Orgs)
+├── utils/
+│   ├── excelInvoiceGenerator.ts  # ExcelJS monthly report export engine
+│   └── invoiceAggregator.ts     # Monthly delivery aggregation logic
+└── api/
+    └── health.js           # API health check endpoint
+```
+
+---
+
+## 📝 Recent System Optimizations
+
+- **Safe Screen Transitions**: Pre-navigation stack execution eliminating `react-native-screens` unmount crashes on logout.
+- **Depth-Guarded Firestore Cleaner**: Recursion safety limits (`depth > 12`) on `cleanFirestoreData` preventing Android Hermes stack overflows.
+- **Clean Code Audit**: Elimination of legacy dead endpoints, unused constants, and redundant type definitions.
