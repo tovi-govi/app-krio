@@ -17,6 +17,10 @@ export default function AdminLayout() {
     }
   }, [isLoading, user, router]);
 
+  if (isLoading || !user || user.role !== "admin") {
+    return <View style={{ flex: 1, backgroundColor: Colors.background }} />;
+  }
+
   const dockItems = [
     { icon: <Home size={18} color={Colors.white} />, label: "Home", onClick: () => router.push("/admin") },
     { icon: <Building2 size={18} color={Colors.white} />, label: "Partners", onClick: () => router.push("/admin/organizations") },

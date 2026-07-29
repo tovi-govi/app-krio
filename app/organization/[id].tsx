@@ -67,7 +67,7 @@ export default function OrganizationOrdersScreen() {
   }, [organizationDeliveries, organizationOrders]);
 
   if (isLoading || !user || user.role !== "admin") {
-    return null;
+    return <View style={{ flex: 1, backgroundColor: Colors.background }} />;
   }
 
   if (!organization) {
