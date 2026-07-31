@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Krio-H\u2082O",
+    "name": "Krio-H₂O",
     "slug": "krioh2o-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,10 +8,13 @@
     "scheme": "krioh2o",
     "userInterfaceStyle": "light",
     "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
       "backgroundColor": "#0f2d6b"
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0f2d6b"
       },
       "package": "com.krioh2o.app"
@@ -28,6 +31,18 @@
     "sdkVersion": "53.0.0",
     "ios": {
       "bundleIdentifier": "com.krioh2o.app"
+    },
+    "extra": {
+      "firebaseApiKey": "AIzaSyBqjUXpUHeSRTCjlJk4fM4SJZkYXXfTols",
+      "firebaseAuthDomain": "krio-82c35.firebaseapp.com",
+      "firebaseProjectId": "krio-82c35",
+      "firebaseStorageBucket": "krio-82c35.firebasestorage.app",
+      "firebaseMessagingSenderId": "884297647614",
+      "firebaseAppId": "1:884297647614:web:92bdf9841b1b1076406caf",
+      "router": {},
+      "eas": {
+        "projectId": "c194c68d-8f27-47d4-ace2-5b8abc94cf04"
+      }
     }
   }
 }

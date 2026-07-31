@@ -32,9 +32,9 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 /**
  * Generates an ExcelJS workbook buffer and writes it to cache storage, returning the file URI.
  */
-async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Promise<{ fileUri: string; fileName: string }> {
+async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Promise<{ buffer: ArrayBuffer; fileUri: string; fileName: string }> {
   const { result, organizationNameFilter } = options;
-  const { monthName, year, rows, totalCansDelivered, totalEmptyCansPickedUp, hasData } = result;
+  const { monthName, year, rows, totalCansDelivered, totalEmptyCansPickedUp, totalAmount, hasData } = result;
 
   if (!hasData || !rows || rows.length === 0) {
     console.warn(`[ExcelExport] Export aborted: No data found for ${monthName} ${year}`);
@@ -83,7 +83,7 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
     "200ml Packs",
     "500ml Cases",
     "1L Cases",
-    "Amount",
+    "Amount (₹)",
   ];
   headerRow.eachCell((cell, colNumber) => {
     cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: WHITE_HEX } };
@@ -112,7 +112,7 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
       row.cases200ml || 0,
       row.cases500ml || 0,
       row.cases1l || 0,
-      row.amount ? row.amount : "",
+      row.amount ? row.amount : 0,
     ];
 
     const isEven = index % 2 === 0;
@@ -128,9 +128,9 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
         right: { style: "thin", color: { argb: BORDER_GRAY } },
       };
       if (colNumber === 1) cell.alignment = { vertical: "middle", horizontal: "left" };
-      else if (colNumber >= 2 && colNumber <= 6) {
+      else if (colNumber >= 2 && colNumber <= 7) {
         cell.alignment = { vertical: "middle", horizontal: "right" };
-        cell.numFmt = "#,##0";
+        cell.numFmt = colNumber === 7 ? "₹#,##0" : "#,##0";
       } else cell.alignment = { vertical: "middle", horizontal: "center" };
     });
 
@@ -147,7 +147,7 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
     result.totalCases200ml || 0,
     result.totalCases500ml || 0,
     result.totalCases1l || 0,
-    "",
+    totalAmount || 0,
   ];
   totalsRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
     cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: DARK_BLUE_HEX } };
@@ -159,9 +159,9 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
       right: { style: "thin", color: { argb: BORDER_GRAY } },
     };
     if (colNumber === 1) cell.alignment = { vertical: "middle", horizontal: "left" };
-    else if (colNumber >= 2 && colNumber <= 6) {
+    else if (colNumber >= 2 && colNumber <= 7) {
       cell.alignment = { vertical: "middle", horizontal: "right" };
-      cell.numFmt = "#,##0";
+      cell.numFmt = colNumber === 7 ? "₹#,##0" : "#,##0";
     } else cell.alignment = { vertical: "middle", horizontal: "center" };
   });
 
@@ -179,31 +179,29 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
     else column.width = Math.max(maxLength + 4, 15);
   });
 
-  const buffer = await workbook.xlsx.writeBuffer();
+  const rawBuffer = await workbook.xlsx.writeBuffer();
+  const buffer = rawBuffer as ArrayBuffer;
+
   if (Platform.OS === "web") {
-    return { fileUri: "", fileName };
+    return { buffer, fileUri: "", fileName };
   }
 
-  const base64 = arrayBufferToBase64(buffer as ArrayBuffer);
+  const base64 = arrayBufferToBase64(buffer);
   const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
   await FileSystem.writeAsStringAsync(fileUri, base64, {
     encoding: FileSystem.EncodingType.Base64,
   });
 
-  return { fileUri, fileName };
+  return { buffer, fileUri, fileName };
 }
 
 /**
  * Generates and downloads the Excel file locally.
  */
 export async function generateAndDownloadExcelInvoice(options: DownloadInvoiceOptions): Promise<string> {
-  const { result } = options;
-  const { fileUri, fileName } = await generateAndSaveExcelBuffer(options);
+  const { buffer, fileUri, fileName } = await generateAndSaveExcelBuffer(options);
 
   if (Platform.OS === "web" && typeof document !== "undefined") {
-    const workbook = new ExcelJS.Workbook();
-    // Re-trigger web buffer download
-    const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");

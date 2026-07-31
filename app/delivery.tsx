@@ -1,30 +1,62 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Animated, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Animated,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { LogOut, User, Search, Check, Truck } from "lucide-react-native";
+import {
+  LogOut,
+  User,
+  Search,
+  Check,
+  Truck,
+  Calendar as CalendarIcon,
+  FileText,
+  CheckCircle2,
+  AlertCircle,
+  MapPin,
+  Phone,
+  ArrowRight,
+  Plus,
+  Minus,
+  X,
+  Factory,
+  ChevronDown,
+} from "lucide-react-native";
 import KrioLogo from "@/assets/logos/krio-logo.svg";
 import { Colors, Radius, Shadow } from "@/constants/theme";
-import { useCart } from "@/context/CartContext";
+import { DeliverySchedule, Organization, useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import ConfirmModal from "@/components/UI/ConfirmModal";
 import Toast, { ToastMessage } from "@/components/UI/Toast";
 
 export default function DeliveryScreen() {
   const { user, isLoading, logout } = useAuth();
-  const { products, organizations, deliveries, plants, addDeliveryRecord } = useCart();
+  const {
+    products,
+    organizations,
+    deliveries,
+    deliverySchedules,
+    plants,
+    addDeliveryRecord,
+    markScheduleCompleted,
+  } = useCart();
+
   const scrollY = useRef(new Animated.Value(0)).current;
 
+  // Header animation interpolation
   const headerTranslateY = scrollY.interpolate({
     inputRange: [0, 180],
-    outputRange: [0, -50],
-    extrapolate: "clamp",
-  });
-
-  const headerOpacity = scrollY.interpolate({
-    inputRange: [0, 180],
-    outputRange: [1, 0.88],
+    outputRange: [0, -40],
     extrapolate: "clamp",
   });
 
@@ -38,13 +70,64 @@ export default function DeliveryScreen() {
   const max500mlCases = prod500ml ? Math.floor(prod500ml.stock / 24) : 999999;
   const max1lCases = prod1l ? Math.floor(prod1l.stock / 12) : 999999;
 
-  const [selectedOrganizationId, setSelectedOrganizationId] = useState<string | null>(null);
-  const [showOrgMenu, setShowOrgMenu] = useState(false);
-  const [orgSearchText, setOrgSearchText] = useState("");
+  // Format today's date YYYY-MM-DD
+  const todayStr = useMemo(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = (now.getMonth() + 1).toString().padStart(2, "0");
+    const d = now.getDate().toString().padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }, []);
 
+  // Formatted date string for display (e.g. Thursday, 30 July)
+  const formattedTodayDate = useMemo(() => {
+    return new Date().toLocaleDateString("en-US", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  }, []);
+
+  // Filter today's schedules
+  const todaySchedules = useMemo(() => {
+    return deliverySchedules.filter((s) => s.scheduledDate === todayStr);
+  }, [deliverySchedules, todayStr]);
+
+  // Search Query for filtering today's deliveries
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Search filtered schedules
+  const filteredSchedules = useMemo(() => {
+    if (!searchQuery.trim()) return todaySchedules;
+    const query = searchQuery.toLowerCase();
+    return todaySchedules.filter((s) => {
+      const org = organizations.find((o) => o.id === s.organizationId);
+      const nameMatch = s.organizationName.toLowerCase().includes(query);
+      const addressMatch = org?.address.toLowerCase().includes(query) ?? false;
+      const notesMatch = s.notes?.toLowerCase().includes(query) ?? false;
+      return nameMatch || addressMatch || notesMatch;
+    });
+  }, [todaySchedules, organizations, searchQuery]);
+
+  // Partition into Pending and Completed lists
+  const pendingSchedules = useMemo(() => {
+    return filteredSchedules.filter((s) => s.status !== "Completed");
+  }, [filteredSchedules]);
+
+  const completedSchedules = useMemo(() => {
+    return filteredSchedules.filter((s) => s.status === "Completed");
+  }, [filteredSchedules]);
+
+  // Stats calculation
+  const totalCount = todaySchedules.length;
+  const completedCount = todaySchedules.filter((s) => s.status === "Completed").length;
+  const remainingCount = totalCount - completedCount;
+  const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+  // Delivery Modal State (when recording delivery for a selected card)
+  const [activeSchedule, setActiveSchedule] = useState<DeliverySchedule | null>(null);
   const [selectedPlantId, setSelectedPlantId] = useState<string | null>(null);
-  const [showPlantMenu, setShowPlantMenu] = useState(false);
-  const [plantSearchText, setPlantSearchText] = useState("");
 
   const [fullCansLoaded, setFullCansLoaded] = useState("");
   const [emptyCansReturned, setEmptyCansReturned] = useState("");
@@ -63,58 +146,101 @@ export default function DeliveryScreen() {
     }
   }, [plants, selectedPlantId]);
 
-  const selectedOrganization = useMemo(
-    () => organizations.find((org) => org.id === selectedOrganizationId) ?? null,
-    [organizations, selectedOrganizationId]
-  );
+  const activeOrg = useMemo(() => {
+    if (!activeSchedule) return null;
+    return organizations.find((o) => o.id === activeSchedule.organizationId) ?? null;
+  }, [activeSchedule, organizations]);
 
   const selectedPlant = useMemo(
     () => plants.find((p) => p.id === selectedPlantId) ?? null,
     [plants, selectedPlantId]
   );
 
-  const filteredOrganizations = useMemo(() => {
-    if (!orgSearchText.trim()) return organizations;
-    const query = orgSearchText.toLowerCase();
-    return organizations.filter(
-      (org) =>
-        org.name.toLowerCase().includes(query) ||
-        org.phone.toLowerCase().includes(query) ||
-        org.address.toLowerCase().includes(query)
-    );
-  }, [organizations, orgSearchText]);
-
-  const filteredPlants = useMemo(() => {
-    if (!plantSearchText.trim()) return plants;
-    const query = plantSearchText.toLowerCase();
-    return plants.filter(
-      (p) =>
-        p.name.toLowerCase().includes(query) ||
-        p.location.toLowerCase().includes(query)
-    );
-  }, [plants, plantSearchText]);
-
-  const todayDeliveriesCount = useMemo(() => {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    return deliveries.filter((d) => {
-      const dDate = d.createdAt ? new Date(d.createdAt).toISOString().slice(0, 10) : "";
-      return dDate === todayStr && d.deliveredBy === user?.name;
-    }).length;
-  }, [deliveries, user?.name]);
-
   useEffect(() => {
-    if (!isLoading && (!user || user.role !== "delivery")) {
+    if (isLoading) return;
+    if (!user) {
       router.replace("/login");
+    } else if (user.role !== "delivery") {
+      router.replace("/admin");
     }
-  }, [isLoading, user]);
+  }, [user, isLoading]);
 
   if (isLoading || !user || user.role !== "delivery") {
     return <View style={{ flex: 1, backgroundColor: Colors.background }} />;
   }
 
   const handleLogout = async () => {
-    router.replace("/login");
     await logout();
+  };
+
+  // Open Log Delivery modal for a specific schedule
+  const handleOpenDeliveryModal = (schedule: DeliverySchedule) => {
+    setActiveSchedule(schedule);
+    setFullCansLoaded("");
+    setEmptyCansReturned("");
+    setCases200ml("");
+    setCases500ml("");
+    setCases1l("");
+  };
+
+  const handleFullCansTextChange = (text: string) => {
+    const num = Number(text) || 0;
+    if (num > max20lCans) {
+      setFullCansLoaded(String(max20lCans));
+      setToast({
+        id: Date.now().toString(),
+        type: "warning",
+        title: "Stock Limit Exceeded",
+        message: `Clamped to maximum available stock: ${max20lCans} 20L cans.`,
+      });
+      return;
+    }
+    setFullCansLoaded(text);
+  };
+
+  const handle200mlTextChange = (text: string) => {
+    const num = Number(text) || 0;
+    if (num > max200mlPacks) {
+      setCases200ml(String(max200mlPacks));
+      setToast({
+        id: Date.now().toString(),
+        type: "warning",
+        title: "Stock Limit Exceeded",
+        message: `Clamped to maximum available stock: ${max200mlPacks} packs.`,
+      });
+      return;
+    }
+    setCases200ml(text);
+  };
+
+  const handle500mlTextChange = (text: string) => {
+    const num = Number(text) || 0;
+    if (num > max500mlCases) {
+      setCases500ml(String(max500mlCases));
+      setToast({
+        id: Date.now().toString(),
+        type: "warning",
+        title: "Stock Limit Exceeded",
+        message: `Clamped to maximum available stock: ${max500mlCases} cases.`,
+      });
+      return;
+    }
+    setCases500ml(text);
+  };
+
+  const handle1lTextChange = (text: string) => {
+    const num = Number(text) || 0;
+    if (num > max1lCases) {
+      setCases1l(String(max1lCases));
+      setToast({
+        id: Date.now().toString(),
+        type: "warning",
+        title: "Stock Limit Exceeded",
+        message: `Clamped to maximum available stock: ${max1lCases} cases.`,
+      });
+      return;
+    }
+    setCases1l(text);
   };
 
   const handleAddFullCans = (amount: number) => {
@@ -144,7 +270,7 @@ export default function DeliveryScreen() {
         id: Date.now().toString(),
         type: "warning",
         title: "Stock Limit Reached",
-        message: `Only ${max200mlPacks} packs (${prod200ml?.stock ?? 0} bottles) available in stock.`,
+        message: `Only ${max200mlPacks} packs available in stock.`,
       });
       return;
     }
@@ -159,7 +285,7 @@ export default function DeliveryScreen() {
         id: Date.now().toString(),
         type: "warning",
         title: "Stock Limit Reached",
-        message: `Only ${max500mlCases} cases (${prod500ml?.stock ?? 0} bottles) available in stock.`,
+        message: `Only ${max500mlCases} cases available in stock.`,
       });
       return;
     }
@@ -174,7 +300,7 @@ export default function DeliveryScreen() {
         id: Date.now().toString(),
         type: "warning",
         title: "Stock Limit Reached",
-        message: `Only ${max1lCases} cases (${prod1l?.stock ?? 0} bottles) available in stock.`,
+        message: `Only ${max1lCases} cases available in stock.`,
       });
       return;
     }
@@ -183,25 +309,7 @@ export default function DeliveryScreen() {
   };
 
   const openConfirmation = () => {
-    if (!selectedOrganizationId) {
-      setToast({
-        id: Date.now().toString(),
-        type: "warning",
-        title: "Select Partner Organization",
-        message: "Please choose which partner organization is receiving this delivery.",
-      });
-      return;
-    }
-
-    if (!selectedPlantId && plants.length > 0) {
-      setToast({
-        id: Date.now().toString(),
-        type: "warning",
-        title: "Select Water Source",
-        message: "Please choose which plant the water cans were loaded from.",
-      });
-      return;
-    }
+    if (!activeSchedule) return;
 
     const loaded = Number(fullCansLoaded) || 0;
     const emptyReturned = Number(emptyCansReturned) || 0;
@@ -213,7 +321,7 @@ export default function DeliveryScreen() {
       setToast({
         id: Date.now().toString(),
         type: "warning",
-        title: "Enter Quantity",
+        title: "Enter Quantities",
         message: "Please enter quantities for 20L cans or packaged bottle cases.",
       });
       return;
@@ -223,8 +331,8 @@ export default function DeliveryScreen() {
       setToast({
         id: Date.now().toString(),
         type: "warning",
-        title: "Exceeds Stock",
-        message: `Cannot load ${loaded} 20L cans. Only ${max20lCans} remaining in inventory.`,
+        title: "Exceeds Available Stock",
+        message: `Cannot deliver ${loaded} 20L cans. Only ${max20lCans} remaining in inventory.`,
       });
       return;
     }
@@ -233,8 +341,8 @@ export default function DeliveryScreen() {
       setToast({
         id: Date.now().toString(),
         type: "warning",
-        title: "Exceeds Stock",
-        message: `Cannot load ${c200} packs of 200ml. Only ${max200mlPacks} packs (${prod200ml?.stock ?? 0} bottles) remaining in inventory.`,
+        title: "Exceeds Available Stock",
+        message: `Cannot deliver ${c200} packs of 200ml. Only ${max200mlPacks} packs remaining in inventory.`,
       });
       return;
     }
@@ -243,8 +351,8 @@ export default function DeliveryScreen() {
       setToast({
         id: Date.now().toString(),
         type: "warning",
-        title: "Exceeds Stock",
-        message: `Cannot load ${c500} cases of 500ml. Only ${max500mlCases} cases (${prod500ml?.stock ?? 0} bottles) remaining in inventory.`,
+        title: "Exceeds Available Stock",
+        message: `Cannot deliver ${c500} cases of 500ml. Only ${max500mlCases} cases remaining in inventory.`,
       });
       return;
     }
@@ -253,8 +361,8 @@ export default function DeliveryScreen() {
       setToast({
         id: Date.now().toString(),
         type: "warning",
-        title: "Exceeds Stock",
-        message: `Cannot load ${c1l} cases of 1L. Only ${max1lCases} cases (${prod1l?.stock ?? 0} bottles) remaining in inventory.`,
+        title: "Exceeds Available Stock",
+        message: `Cannot deliver ${c1l} cases of 1L. Only ${max1lCases} cases remaining in inventory.`,
       });
       return;
     }
@@ -263,7 +371,7 @@ export default function DeliveryScreen() {
   };
 
   const handleConfirmDelivery = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting || !activeSchedule) return;
     setIsSubmitting(true);
 
     try {
@@ -276,8 +384,8 @@ export default function DeliveryScreen() {
 
       const payload = {
         id: deliveryId,
-        organizationId: selectedOrganization?.id,
-        organizationName: selectedOrganization?.name || "",
+        organizationId: activeSchedule.organizationId,
+        organizationName: activeSchedule.organizationName,
         plantId: selectedPlant?.id,
         plantName: selectedPlant?.name || "Main Plant",
         plantLocation: selectedPlant?.location || "",
@@ -290,20 +398,20 @@ export default function DeliveryScreen() {
         createdAt: new Date().toISOString(),
       };
 
+      // 1. Add delivery log to Firestore
       await addDeliveryRecord(payload);
 
+      // 2. Mark schedule as Completed in Firestore
+      await markScheduleCompleted(activeSchedule.id, user.name);
+
       setShowConfirmModal(false);
-      setFullCansLoaded("");
-      setEmptyCansReturned("");
-      setCases200ml("");
-      setCases500ml("");
-      setCases1l("");
+      setActiveSchedule(null);
 
       setToast({
         id: Date.now().toString(),
         type: "success",
-        title: "Delivery & Inventory Logged",
-        message: `Saved delivery for ${selectedOrganization?.name}. Stock updated automatically!`,
+        title: "Delivery Completed!",
+        message: `Logged delivery for ${activeSchedule.organizationName}. Stock updated automatically!`,
       });
     } catch (error: any) {
       console.error("Failed to save delivery:", error);
@@ -318,467 +426,978 @@ export default function DeliveryScreen() {
     }
   };
 
-  const myShiftDeliveries = useMemo(() => {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    return deliveries.filter((d) => {
-      const dDate = d.createdAt ? new Date(d.createdAt).toISOString().slice(0, 10) : "";
-      return dDate === todayStr && d.deliveredBy === user?.name;
-    });
-  }, [deliveries, user?.name]);
-
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }}>
-      <Toast toast={toast} onDismiss={() => setToast(null)} />
-
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
       <Animated.ScrollView
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        onScroll={Animated.event([{ nativeEvent: { contentOffset: { y: scrollY } } }], {
+          useNativeDriver: true,
+        })}
         scrollEventThrottle={16}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: true }
-        )}
       >
-        <Animated.View style={{ transform: [{ translateY: headerTranslateY }], opacity: headerOpacity }}>
+        {/* Top Header Card */}
+        <Animated.View style={{ transform: [{ translateY: headerTranslateY }] }}>
           <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.header}>
             <View style={styles.headerTop}>
-              <KrioLogo width={120} height={36} />
-              <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} accessibilityLabel="Logout">
-                <LogOut size={20} color={Colors.white} />
+              <View style={styles.logoContainer}>
+                <KrioLogo width={120} height={36} preserveAspectRatio="xMinYMin meet" />
+                <View style={styles.roleBadge}>
+                  <Text style={styles.headerLabel}>DELIVERY</Text>
+                </View>
+              </View>
+              <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+                <LogOut size={18} color={Colors.white} />
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.headerLabel}>DRIVER DISPATCH PANEL</Text>
-            <Text style={styles.headerTitle}>Delivery Dashboard</Text>
-            <Text style={styles.headerSub}>Record water cans & bottle cases. Inventory updates automatically on submit.</Text>
-
-            <View style={styles.profileCard}>
-              <View style={styles.profileIcon}>
-                <User size={24} color={Colors.primary} />
+            <View style={styles.driverProfile}>
+              <View style={styles.driverAvatar}>
+                <User size={20} color={Colors.primary} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.profileName}>{user.name}</Text>
-                <Text style={styles.profileRole}>Verified Delivery Executive</Text>
+                <Text style={styles.driverName}>{user.name}</Text>
+                <Text style={styles.driverDate}>{formattedTodayDate}</Text>
               </View>
             </View>
           </LinearGradient>
         </Animated.View>
 
-        <View style={styles.content}>
-        {/* Shift Summary Badges */}
-        <Text style={styles.sectionTitle}>Today's Shift Summary</Text>
-        <View style={styles.cardGrid}>
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Completed Runs</Text>
-            <Text style={styles.statValue}>{todayDeliveriesCount}</Text>
+        {/* Progress & Summary Dashboard Card */}
+        <View style={styles.progressCard}>
+          <View style={styles.progressHeaderRow}>
+            <View>
+              <Text style={styles.progressTitle}>Today's Deliveries</Text>
+              <Text style={styles.progressSubtitle}>
+                {completedCount} of {totalCount} Completed ({progressPercent}%)
+              </Text>
+            </View>
+            <View style={styles.progressBadge}>
+              <Truck size={18} color={Colors.primary} />
+            </View>
           </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Active Partners</Text>
-            <Text style={styles.statValue}>{organizations.length}</Text>
+
+          {/* Progress Bar */}
+          <View style={styles.progressBarTrack}>
+            <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+          </View>
+
+          {/* Stats Chips Row */}
+          <View style={styles.statsRow}>
+            <View style={styles.statChip}>
+              <Text style={styles.statChipNumber}>{totalCount}</Text>
+              <Text style={styles.statChipLabel}>Scheduled</Text>
+            </View>
+            <View style={styles.statChipDivider} />
+            <View style={styles.statChip}>
+              <Text style={[styles.statChipNumber, { color: Colors.success }]}>{completedCount}</Text>
+              <Text style={styles.statChipLabel}>Completed</Text>
+            </View>
+            <View style={styles.statChipDivider} />
+            <View style={styles.statChip}>
+              <Text style={[styles.statChipNumber, { color: Colors.info }]}>{remainingCount}</Text>
+              <Text style={styles.statChipLabel}>Remaining</Text>
+            </View>
           </View>
         </View>
 
-        {/* Dispatch Form Card */}
-        <Text style={styles.sectionTitle}>Record Water Delivery</Text>
-        <View style={styles.formCard}>
-          {/* Step 1: Organization Select */}
-          <View style={styles.stepHeaderRow}>
-            <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>1</Text></View>
-            <Text style={styles.formHeading}>Select Partner Organization</Text>
-          </View>
-
-          <TouchableOpacity
-            style={styles.dropdownButton}
-            onPress={() => setShowOrgMenu((value) => !value)}
-            accessibilityRole="combobox"
-          >
-            <Text style={[styles.dropdownButtonText, selectedOrganization && { color: Colors.primary, fontWeight: "900" }]}>
-              {selectedOrganization?.name || "👇 Tap to choose Organization"}
-            </Text>
-          </TouchableOpacity>
-
-          {showOrgMenu && (
-            <View style={styles.dropdownMenu}>
-              <View style={styles.searchBox}>
-                <Search size={18} color={Colors.muted} style={{ marginRight: 8 }} />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Search organization name..."
-                  placeholderTextColor={Colors.muted}
-                  value={orgSearchText}
-                  onChangeText={setOrgSearchText}
-                />
-              </View>
-              <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
-                {filteredOrganizations.length === 0 ? (
-                  <Text style={styles.dropdownEmpty}>No matching organizations found.</Text>
-                ) : (
-                  filteredOrganizations.map((org) => (
-                    <TouchableOpacity
-                      key={org.id}
-                      style={styles.dropdownMenuItem}
-                      onPress={() => {
-                        setSelectedOrganizationId(org.id);
-                        setShowOrgMenu(false);
-                      }}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={[
-                            styles.dropdownMenuText,
-                            selectedOrganizationId === org.id && styles.dropdownMenuTextSelected,
-                          ]}
-                        >
-                          {org.name}
-                        </Text>
-                        {org.address ? <Text style={styles.subDetailText}>{org.address}</Text> : null}
-                      </View>
-                      {selectedOrganizationId === org.id && <Check size={20} color={Colors.primary} />}
-                    </TouchableOpacity>
-                  ))
-                )}
-              </ScrollView>
-            </View>
-          )}
-
-          {/* Step 2: Dispatch Water Source */}
-          <View style={styles.stepHeaderRow}>
-            <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>2</Text></View>
-            <Text style={styles.formHeading}>Water Source Plant</Text>
-          </View>
-
-          <TouchableOpacity
-            style={styles.dropdownButton}
-            onPress={() => setShowPlantMenu((value) => !value)}
-            accessibilityRole="combobox"
-          >
-            <Text style={styles.dropdownButtonText}>
-              {selectedPlant ? `📍 ${selectedPlant.name}` : "Tap to select water plant"}
-            </Text>
-          </TouchableOpacity>
-
-          {showPlantMenu && (
-            <View style={styles.dropdownMenu}>
-              <View style={styles.searchBox}>
-                <Search size={18} color={Colors.muted} style={{ marginRight: 8 }} />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Search plant..."
-                  placeholderTextColor={Colors.muted}
-                  value={plantSearchText}
-                  onChangeText={setPlantSearchText}
-                />
-              </View>
-              <ScrollView style={{ maxHeight: 180 }} nestedScrollEnabled>
-                {filteredPlants.length === 0 ? (
-                  <Text style={styles.dropdownEmpty}>No matching plants found.</Text>
-                ) : (
-                  filteredPlants.map((p) => (
-                    <TouchableOpacity
-                      key={p.id}
-                      style={styles.dropdownMenuItem}
-                      onPress={() => {
-                        setSelectedPlantId(p.id);
-                        setShowPlantMenu(false);
-                      }}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={[
-                            styles.dropdownMenuText,
-                            selectedPlantId === p.id && styles.dropdownMenuTextSelected,
-                          ]}
-                        >
-                          {p.name}
-                        </Text>
-                        <Text style={{ fontSize: 12, color: Colors.muted, marginTop: 2 }}>{p.location}</Text>
-                      </View>
-                      {selectedPlantId === p.id && <Check size={20} color={Colors.primary} />}
-                    </TouchableOpacity>
-                  ))
-                )}
-              </ScrollView>
-            </View>
-          )}
-
-          {/* Step 3: 20L Water Cans */}
-          <View style={styles.stepHeaderRow}>
-            <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>3</Text></View>
-            <Text style={styles.formHeading}>20 L Water Cans</Text>
-          </View>
-
-          <View style={styles.bottleRowHeader}>
-            <Text style={styles.subFieldLabel}>Full 20L Cans Loaded</Text>
-            <Text style={styles.stockAvailBadge}>Available: {max20lCans} cans</Text>
-          </View>
-          <View style={styles.stepperContainer}>
-            <TouchableOpacity style={styles.stepperBtn} onPress={() => handleAddFullCans(-1)}>
-              <Text style={styles.stepperBtnText}>-</Text>
-            </TouchableOpacity>
+        {/* Search Bar */}
+        {totalCount > 0 && (
+          <View style={styles.searchContainer}>
+            <Search size={18} color={Colors.muted} style={{ marginRight: 8 }} />
             <TextInput
-              style={styles.stepperInput}
-              placeholder="0"
+              style={styles.searchInput}
+              placeholder="Search by organization or address..."
               placeholderTextColor={Colors.muted}
-              keyboardType="numeric"
-              value={fullCansLoaded}
-              onChangeText={(text) => {
-                const val = Number(text) || 0;
-                if (val > max20lCans) {
-                  setToast({
-                    id: Date.now().toString(),
-                    type: "warning",
-                    title: "Exceeds Stock",
-                    message: `Only ${max20lCans} 20L cans available in inventory.`,
-                  });
-                  setFullCansLoaded(String(max20lCans));
-                  return;
-                }
-                setFullCansLoaded(text);
-              }}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
             />
-            <TouchableOpacity style={styles.stepperBtn} onPress={() => handleAddFullCans(1)}>
-              <Text style={styles.stepperBtnText}>+</Text>
-            </TouchableOpacity>
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery("")}>
+                <X size={18} color={Colors.muted} />
+              </TouchableOpacity>
+            )}
           </View>
-
-          <Text style={styles.subFieldLabel}>Empty 20L Cans Collected</Text>
-          <View style={styles.stepperContainer}>
-            <TouchableOpacity style={styles.stepperBtn} onPress={() => handleAddEmptyCans(-1)}>
-              <Text style={styles.stepperBtnText}>-</Text>
-            </TouchableOpacity>
-            <TextInput
-              style={styles.stepperInput}
-              placeholder="0"
-              placeholderTextColor={Colors.muted}
-              keyboardType="numeric"
-              value={emptyCansReturned}
-              onChangeText={setEmptyCansReturned}
-            />
-            <TouchableOpacity style={styles.stepperBtn} onPress={() => handleAddEmptyCans(1)}>
-              <Text style={styles.stepperBtnText}>+</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Step 4: Packaged Bottle Cases */}
-          <View style={styles.stepHeaderRow}>
-            <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>4</Text></View>
-            <Text style={styles.formHeading}>Packaged Bottle Cases</Text>
-          </View>
-
-          {/* 200ml Pack (35 bottles) */}
-          <View style={styles.bottleRowHeader}>
-            <Text style={styles.subFieldLabel}>200 ml Packs (1 Pack = 35 Bottles)</Text>
-            <Text style={styles.stockAvailBadge}>Available: {max200mlPacks} packs</Text>
-          </View>
-          <View style={styles.stepperContainer}>
-            <TouchableOpacity style={styles.stepperBtn} onPress={() => handleAdd200ml(-1)}>
-              <Text style={styles.stepperBtnText}>-</Text>
-            </TouchableOpacity>
-            <TextInput
-              style={styles.stepperInput}
-              placeholder="0 packs"
-              placeholderTextColor={Colors.muted}
-              keyboardType="numeric"
-              value={cases200ml}
-              onChangeText={(text) => {
-                const val = Number(text) || 0;
-                if (val > max200mlPacks) {
-                  setToast({
-                    id: Date.now().toString(),
-                    type: "warning",
-                    title: "Exceeds Stock",
-                    message: `Only ${max200mlPacks} packs available in inventory.`,
-                  });
-                  setCases200ml(String(max200mlPacks));
-                  return;
-                }
-                setCases200ml(text);
-              }}
-            />
-            <TouchableOpacity style={styles.stepperBtn} onPress={() => handleAdd200ml(1)}>
-              <Text style={styles.stepperBtnText}>+</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* 500ml Case (24 bottles) */}
-          <View style={styles.bottleRowHeader}>
-            <Text style={styles.subFieldLabel}>500 ml Cases (1 Case = 24 Bottles)</Text>
-            <Text style={styles.stockAvailBadge}>Available: {max500mlCases} cases</Text>
-          </View>
-          <View style={styles.stepperContainer}>
-            <TouchableOpacity style={styles.stepperBtn} onPress={() => handleAdd500ml(-1)}>
-              <Text style={styles.stepperBtnText}>-</Text>
-            </TouchableOpacity>
-            <TextInput
-              style={styles.stepperInput}
-              placeholder="0 cases"
-              placeholderTextColor={Colors.muted}
-              keyboardType="numeric"
-              value={cases500ml}
-              onChangeText={(text) => {
-                const val = Number(text) || 0;
-                if (val > max500mlCases) {
-                  setToast({
-                    id: Date.now().toString(),
-                    type: "warning",
-                    title: "Exceeds Stock",
-                    message: `Only ${max500mlCases} cases available in inventory.`,
-                  });
-                  setCases500ml(String(max500mlCases));
-                  return;
-                }
-                setCases500ml(text);
-              }}
-            />
-            <TouchableOpacity style={styles.stepperBtn} onPress={() => handleAdd500ml(1)}>
-              <Text style={styles.stepperBtnText}>+</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* 1 Litre Case (12 bottles) */}
-          <View style={styles.bottleRowHeader}>
-            <Text style={styles.subFieldLabel}>1 Litre Cases (1 Case = 12 Bottles)</Text>
-            <Text style={styles.stockAvailBadge}>Available: {max1lCases} cases</Text>
-          </View>
-          <View style={styles.stepperContainer}>
-            <TouchableOpacity style={styles.stepperBtn} onPress={() => handleAdd1l(-1)}>
-              <Text style={styles.stepperBtnText}>-</Text>
-            </TouchableOpacity>
-            <TextInput
-              style={styles.stepperInput}
-              placeholder="0 cases"
-              placeholderTextColor={Colors.muted}
-              keyboardType="numeric"
-              value={cases1l}
-              onChangeText={(text) => {
-                const val = Number(text) || 0;
-                if (val > max1lCases) {
-                  setToast({
-                    id: Date.now().toString(),
-                    type: "warning",
-                    title: "Exceeds Stock",
-                    message: `Only ${max1lCases} cases available in inventory.`,
-                  });
-                  setCases1l(String(max1lCases));
-                  return;
-                }
-                setCases1l(text);
-              }}
-            />
-            <TouchableOpacity style={styles.stepperBtn} onPress={() => handleAdd1l(1)}>
-              <Text style={styles.stepperBtnText}>+</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Prominent High-Contrast Action Button */}
-          <TouchableOpacity
-            style={[styles.confirmButton, isSubmitting && { opacity: 0.65 }]}
-            onPress={openConfirmation}
-            disabled={isSubmitting}
-            accessibilityRole="button"
-          >
-            <Truck size={22} color={Colors.white} style={{ marginRight: 10 }} />
-            <Text style={styles.confirmButtonText}>
-              {isSubmitting ? "Logging Delivery..." : "RECORD DELIVERY RUN"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Shift History Section */}
-        <Text style={styles.sectionTitle}>Today's Logged Runs ({myShiftDeliveries.length})</Text>
-        {myShiftDeliveries.length === 0 ? (
-          <View style={styles.emptyShiftCard}>
-            <Truck size={32} color={Colors.muted} />
-            <Text style={styles.emptyShiftTitle}>No runs logged yet today</Text>
-            <Text style={styles.emptyShiftText}>Deliveries you submit above will appear here immediately.</Text>
-          </View>
-        ) : (
-          myShiftDeliveries.map((item) => (
-            <View key={item.id} style={styles.shiftRunCard}>
-              <View style={styles.shiftRunIconBox}>
-                <Check size={20} color={Colors.white} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.shiftRunOrg}>{item.organizationName}</Text>
-                <Text style={styles.shiftRunMeta}>
-                  {item.createdAt ? new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "Just now"}
-                  {item.plantName ? ` • ${item.plantName}` : ""}
-                </Text>
-                <Text style={styles.shiftRunCounts}>
-                  💧 {item.fullCansLoaded} Full 20L | 🪣 {item.emptyCansReturned} Empty
-                  {item.cases200mlDelivered ? ` | 🧴 ${item.cases200mlDelivered}p (200ml)` : ""}
-                  {item.cases500mlDelivered ? ` | 🍶 ${item.cases500mlDelivered}c (500ml)` : ""}
-                  {item.cases1lDelivered ? ` | 🫙 ${item.cases1lDelivered}c (1L)` : ""}
-                </Text>
-              </View>
-            </View>
-          ))
         )}
-        </View>
+
+        {/* EMPTY STATE */}
+        {totalCount === 0 && (
+          <View style={styles.emptyCard}>
+            <View style={styles.emptyIconCircle}>
+              <CalendarIcon size={36} color={Colors.primary} />
+            </View>
+            <Text style={styles.emptyTitle}>No deliveries scheduled for today.</Text>
+            <Text style={styles.emptySub}>
+              Your route is clear for today! Check back later or contact your administrator for schedule updates.
+            </Text>
+          </View>
+        )}
+
+        {/* PENDING DELIVERIES SECTION */}
+        {pendingSchedules.length > 0 && (
+          <View style={styles.sectionContainer}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>Pending Deliveries</Text>
+              <View style={styles.badgePendingCount}>
+                <Text style={styles.badgePendingCountText}>{pendingSchedules.length}</Text>
+              </View>
+            </View>
+
+            {pendingSchedules.map((schedule) => {
+              const org = organizations.find((o) => o.id === schedule.organizationId);
+              return (
+                <View key={schedule.id} style={styles.deliveryCard}>
+                  <View style={styles.cardHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cardOrgName}>{schedule.organizationName}</Text>
+                      {org?.address ? (
+                        <View style={styles.cardMetaRow}>
+                          <MapPin size={13} color={Colors.muted} />
+                          <Text style={styles.cardMetaText} numberOfLines={1}>
+                            {org.address}
+                          </Text>
+                        </View>
+                      ) : null}
+                      {org?.phone ? (
+                        <View style={styles.cardMetaRow}>
+                          <Phone size={13} color={Colors.muted} />
+                          <Text style={styles.cardMetaText}>{org.phone}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+
+                    <View style={styles.pendingStatusBadge}>
+                      <Text style={styles.pendingStatusText}>Pending</Text>
+                    </View>
+                  </View>
+
+                  {/* Delivery Notes Callout */}
+                  {schedule.notes ? (
+                    <View style={styles.notesBox}>
+                      <FileText size={14} color={Colors.primary} style={{ marginRight: 6 }} />
+                      <Text style={styles.notesText}>{schedule.notes}</Text>
+                    </View>
+                  ) : null}
+
+                  {/* Action Button */}
+                  <TouchableOpacity
+                    style={styles.recordBtn}
+                    onPress={() => handleOpenDeliveryModal(schedule)}
+                    activeOpacity={0.85}
+                  >
+                    <Truck size={18} color="#FFF" style={{ marginRight: 8 }} />
+                    <Text style={styles.recordBtnText}>Record Delivery</Text>
+                    <ArrowRight size={18} color="#FFF" style={{ marginLeft: "auto" }} />
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        {/* COMPLETED DELIVERIES SECTION */}
+        {completedSchedules.length > 0 && (
+          <View style={styles.sectionContainer}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitleCompleted}>Completed Today</Text>
+              <View style={styles.badgeCompletedCount}>
+                <Text style={styles.badgeCompletedCountText}>{completedSchedules.length}</Text>
+              </View>
+            </View>
+
+            {completedSchedules.map((schedule) => {
+              const org = organizations.find((o) => o.id === schedule.organizationId);
+              return (
+                <View key={schedule.id} style={[styles.deliveryCard, styles.deliveryCardCompleted]}>
+                  <View style={styles.cardHeader}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cardOrgNameCompleted}>{schedule.organizationName}</Text>
+                      {org?.address ? (
+                        <View style={styles.cardMetaRow}>
+                          <MapPin size={13} color={Colors.muted} />
+                          <Text style={styles.cardMetaText} numberOfLines={1}>
+                            {org.address}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
+
+                    <View style={styles.completedStatusBadge}>
+                      <CheckCircle2 size={14} color="#065F46" style={{ marginRight: 4 }} />
+                      <Text style={styles.completedStatusText}>Completed</Text>
+                    </View>
+                  </View>
+
+                  {/* Completed info */}
+                  {schedule.completedBy ? (
+                    <Text style={styles.completedMetaText}>
+                      Completed by {schedule.completedBy}
+                    </Text>
+                  ) : null}
+
+                  <TouchableOpacity
+                    style={styles.completedUpdateBtn}
+                    onPress={() => handleOpenDeliveryModal(schedule)}
+                  >
+                    <Text style={styles.completedUpdateBtnText}>Log Additional Cans / Bottle Cases</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </View>
+        )}
       </Animated.ScrollView>
 
-      {/* Confirmation Modal before saving */}
-      <ConfirmModal
-        visible={showConfirmModal}
-        title="Confirm Delivery Run"
-        message={`Save delivery for ${selectedOrganization?.name}? Stock will update automatically.`}
-        confirmLabel="Save Delivery"
-        cancelLabel="Make Changes"
-        isConfirming={isSubmitting}
-        onConfirm={handleConfirmDelivery}
-        onCancel={() => setShowConfirmModal(false)}
-      />
+      {/* RECORD DELIVERY MODAL */}
+      {activeSchedule && (
+        <Modal
+          visible={!!activeSchedule}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setActiveSchedule(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalSheet}>
+              {/* Sheet Header */}
+              <View style={styles.sheetHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sheetSubTitle}>Record Delivery Run</Text>
+                  <Text style={styles.sheetTitle}>{activeSchedule.organizationName}</Text>
+                </View>
+                <TouchableOpacity onPress={() => setActiveSchedule(null)} style={styles.closeBtn}>
+                  <X size={20} color={Colors.foreground} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={styles.sheetBody} showsVerticalScrollIndicator={false}>
+                {/* Delivery Notes preview */}
+                {activeSchedule.notes ? (
+                  <View style={styles.sheetNotesBox}>
+                    <FileText size={16} color={Colors.primary} style={{ marginRight: 6 }} />
+                    <Text style={styles.sheetNotesText}>{activeSchedule.notes}</Text>
+                  </View>
+                ) : null}
+
+                {/* Step 1: Water Source Plant */}
+                <Text style={styles.inputLabel}>1. Water Source Plant</Text>
+                <View style={styles.plantSelector}>
+                  {plants.map((plant) => (
+                    <TouchableOpacity
+                      key={plant.id}
+                      style={[
+                        styles.plantChip,
+                        selectedPlantId === plant.id && styles.plantChipSelected,
+                      ]}
+                      onPress={() => setSelectedPlantId(plant.id)}
+                    >
+                      <Factory
+                        size={14}
+                        color={selectedPlantId === plant.id ? Colors.white : Colors.primary}
+                        style={{ marginRight: 6 }}
+                      />
+                      <Text
+                        style={[
+                          styles.plantChipText,
+                          selectedPlantId === plant.id && styles.plantChipTextSelected,
+                        ]}
+                      >
+                        {plant.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                {/* Step 2: 20L Water Cans */}
+                <Text style={styles.inputLabel}>2. 20L Water Cans</Text>
+                <View style={styles.qtyCard}>
+                  <View style={styles.qtyRow}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={styles.qtyLabel}>Full Cans Loaded (Delivered)</Text>
+                      <Text style={{ fontSize: 11, color: Colors.muted, marginTop: 2 }}>
+                        Stock available: {max20lCans} cans
+                      </Text>
+                    </View>
+                    <View style={styles.counterRow}>
+                      <TouchableOpacity style={styles.counterBtn} onPress={() => handleAddFullCans(-1)}>
+                        <Minus size={16} color={Colors.foreground} />
+                      </TouchableOpacity>
+                      <TextInput
+                        style={styles.qtyInput}
+                        keyboardType="number-pad"
+                        value={fullCansLoaded}
+                        onChangeText={handleFullCansTextChange}
+                        placeholder="0"
+                      />
+                      <TouchableOpacity style={styles.counterBtn} onPress={() => handleAddFullCans(1)}>
+                        <Plus size={16} color={Colors.foreground} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.qtyCard}>
+                  <View style={styles.qtyRow}>
+                    <Text style={styles.qtyLabel}>Empty Cans Returned</Text>
+                    <View style={styles.counterRow}>
+                      <TouchableOpacity style={styles.counterBtn} onPress={() => handleAddEmptyCans(-1)}>
+                        <Minus size={16} color={Colors.foreground} />
+                      </TouchableOpacity>
+                      <TextInput
+                        style={styles.qtyInput}
+                        keyboardType="number-pad"
+                        value={emptyCansReturned}
+                        onChangeText={(txt) => setEmptyCansReturned(txt)}
+                        placeholder="0"
+                      />
+                      <TouchableOpacity style={styles.counterBtn} onPress={() => handleAddEmptyCans(1)}>
+                        <Plus size={16} color={Colors.foreground} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Step 3: Bottle Cases */}
+                <Text style={styles.inputLabel}>3. Packaged Bottle Cases (Optional)</Text>
+                <View style={styles.qtyCard}>
+                  <View style={styles.qtyRow}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={styles.qtyLabel}>200ml Packs (35 btls/pack)</Text>
+                      <Text style={{ fontSize: 11, color: Colors.muted, marginTop: 2 }}>
+                        Stock available: {max200mlPacks} packs
+                      </Text>
+                    </View>
+                    <View style={styles.counterRow}>
+                      <TouchableOpacity style={styles.counterBtn} onPress={() => handleAdd200ml(-1)}>
+                        <Minus size={16} color={Colors.foreground} />
+                      </TouchableOpacity>
+                      <TextInput
+                        style={styles.qtyInput}
+                        keyboardType="number-pad"
+                        value={cases200ml}
+                        onChangeText={handle200mlTextChange}
+                        placeholder="0"
+                      />
+                      <TouchableOpacity style={styles.counterBtn} onPress={() => handleAdd200ml(1)}>
+                        <Plus size={16} color={Colors.foreground} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.qtyCard}>
+                  <View style={styles.qtyRow}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={styles.qtyLabel}>500ml Cases (24 btls/case)</Text>
+                      <Text style={{ fontSize: 11, color: Colors.muted, marginTop: 2 }}>
+                        Stock available: {max500mlCases} cases
+                      </Text>
+                    </View>
+                    <View style={styles.counterRow}>
+                      <TouchableOpacity style={styles.counterBtn} onPress={() => handleAdd500ml(-1)}>
+                        <Minus size={16} color={Colors.foreground} />
+                      </TouchableOpacity>
+                      <TextInput
+                        style={styles.qtyInput}
+                        keyboardType="number-pad"
+                        value={cases500ml}
+                        onChangeText={handle500mlTextChange}
+                        placeholder="0"
+                      />
+                      <TouchableOpacity style={styles.counterBtn} onPress={() => handleAdd500ml(1)}>
+                        <Plus size={16} color={Colors.foreground} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.qtyCard}>
+                  <View style={styles.qtyRow}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={styles.qtyLabel}>1 Litre Cases (12 btls/case)</Text>
+                      <Text style={{ fontSize: 11, color: Colors.muted, marginTop: 2 }}>
+                        Stock available: {max1lCases} cases
+                      </Text>
+                    </View>
+                    <View style={styles.counterRow}>
+                      <TouchableOpacity style={styles.counterBtn} onPress={() => handleAdd1l(-1)}>
+                        <Minus size={16} color={Colors.foreground} />
+                      </TouchableOpacity>
+                      <TextInput
+                        style={styles.qtyInput}
+                        keyboardType="number-pad"
+                        value={cases1l}
+                        onChangeText={handle1lTextChange}
+                        placeholder="0"
+                      />
+                      <TouchableOpacity style={styles.counterBtn} onPress={() => handleAdd1l(1)}>
+                        <Plus size={16} color={Colors.foreground} />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </ScrollView>
+
+              {/* Footer Submit Button */}
+              <View style={styles.sheetFooter}>
+                <TouchableOpacity
+                  style={styles.submitBtn}
+                  onPress={openConfirmation}
+                  activeOpacity={0.85}
+                >
+                  <CheckCircle2 size={20} color="#FFF" style={{ marginRight: 8 }} />
+                  <Text style={styles.submitBtnText}>Confirm & Log Delivery</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {/* CONFIRMATION DIALOG */}
+      {showConfirmModal && (
+        <ConfirmModal
+          visible={showConfirmModal}
+          title="Confirm Water Delivery"
+          message={`Are you sure you want to log this delivery for ${activeSchedule?.organizationName}? Stock counts will update automatically.`}
+          confirmLabel="Confirm Log"
+          type="primary"
+          onConfirm={handleConfirmDelivery}
+          onCancel={() => setShowConfirmModal(false)}
+        />
+      )}
+
+      {/* TOAST NOTIFICATIONS */}
+      <Toast toast={toast} onDismiss={() => setToast(null)} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  header: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 28 },
-  headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
-  logoutBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },
-  headerLabel: { fontSize: 11, fontWeight: "800", letterSpacing: 2, color: "rgba(255,255,255,0.9)", marginBottom: 6 },
-  headerTitle: { fontSize: 28, fontWeight: "900", color: Colors.white, marginBottom: 4 },
-  headerSub: { fontSize: 13, lineHeight: 20, color: "rgba(255,255,255,0.85)", marginBottom: 16 },
-  profileCard: { backgroundColor: Colors.card, borderRadius: Radius.xl, flexDirection: "row", alignItems: "center", padding: 18, gap: 16, maxWidth: 800, width: "100%", alignSelf: "center", ...Shadow.soft },
-  profileIcon: { width: 52, height: 52, borderRadius: 26, backgroundColor: Colors.mutedBg, alignItems: "center", justifyContent: "center" },
-  profileName: { fontSize: 18, fontWeight: "900", color: Colors.foreground },
-  profileRole: { fontSize: 13, color: Colors.primary, fontWeight: "800", marginTop: 2 },
-  content: { padding: 16, gap: 16, paddingBottom: 40, maxWidth: 800, width: "100%", alignSelf: "center" },
-  sectionTitle: { fontSize: 17, fontWeight: "900", color: Colors.foreground, marginTop: 4 },
-  cardGrid: { flexDirection: "row", gap: 12 },
-  statCard: { flex: 1, backgroundColor: Colors.card, borderRadius: Radius.xl, padding: 18, borderWidth: 1, borderColor: Colors.border, ...Shadow.soft },
-  statLabel: { fontSize: 12, color: Colors.muted, fontWeight: "700", marginBottom: 6 },
-  statValue: { fontSize: 26, fontWeight: "900", color: Colors.primary },
-  formCard: { backgroundColor: Colors.card, borderRadius: Radius.xl, padding: 20, gap: 16, borderWidth: 1, borderColor: Colors.border, ...Shadow.soft },
-  stepHeaderRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 4 },
-  stepBadge: { width: 26, height: 26, borderRadius: 13, backgroundColor: Colors.primary, alignItems: "center", justifyContent: "center" },
-  stepBadgeText: { color: Colors.white, fontWeight: "900", fontSize: 13 },
-  formHeading: { fontSize: 15, fontWeight: "900", color: Colors.foreground },
-  subFieldLabel: { fontSize: 13, fontWeight: "800", color: Colors.foreground, marginTop: 4 },
-  bottleRowHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  bottleTotalBadge: { fontSize: 12, fontWeight: "900", color: Colors.primary, backgroundColor: Colors.mutedBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: Radius.full },
-  stockAvailBadge: { fontSize: 12, fontWeight: "800", color: Colors.primary, backgroundColor: Colors.mutedBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: Radius.full, borderWidth: 1, borderColor: Colors.border },
-  dropdownButton: { backgroundColor: Colors.mutedBg, borderRadius: Radius.lg, minHeight: 52, paddingVertical: 14, paddingHorizontal: 16, borderWidth: 1.5, borderColor: Colors.border, justifyContent: "center" },
-  dropdownButtonText: { color: Colors.foreground, fontWeight: "800", fontSize: 15 },
-  dropdownMenu: { backgroundColor: Colors.card, borderRadius: Radius.xl, borderWidth: 1, borderColor: Colors.border, overflow: "hidden", ...Shadow.soft },
-  searchBox: { flexDirection: "row", alignItems: "center", backgroundColor: Colors.mutedBg, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  searchInput: { flex: 1, fontSize: 15, color: Colors.foreground, paddingVertical: 0 },
-  dropdownMenuItem: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", minHeight: 48, paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: Colors.border },
-  dropdownMenuText: { color: Colors.foreground, fontSize: 15, fontWeight: "700" },
-  dropdownMenuTextSelected: { color: Colors.primary, fontWeight: "900" },
-  subDetailText: { fontSize: 12, color: Colors.muted, marginTop: 2 },
-  dropdownEmpty: { color: Colors.muted, padding: 16, fontSize: 14, textAlign: "center" },
-  stepperContainer: { flexDirection: "row", alignItems: "center", gap: 12 },
-  stepperBtn: { width: 52, height: 52, borderRadius: Radius.md, backgroundColor: Colors.primary, alignItems: "center", justifyContent: "center", ...Shadow.card },
-  stepperBtnText: { fontSize: 28, fontWeight: "900", color: Colors.white, lineHeight: 30 },
-  stepperInput: { flex: 1, minHeight: 52, backgroundColor: Colors.mutedBg, borderRadius: Radius.md, borderWidth: 1.5, borderColor: Colors.border, fontSize: 18, fontWeight: "900", color: Colors.foreground, textAlign: "center" },
-  confirmButton: { marginTop: 12, flexDirection: "row", backgroundColor: Colors.primary, borderRadius: Radius.full, minHeight: 56, paddingVertical: 16, alignItems: "center", justifyContent: "center", ...Shadow.card },
-  confirmButtonText: { color: Colors.white, fontWeight: "900", fontSize: 16, letterSpacing: 0.5 },
-  emptyShiftCard: { backgroundColor: Colors.card, borderRadius: Radius.xl, padding: 24, borderWidth: 1, borderColor: Colors.border, alignItems: "center", gap: 8, ...Shadow.soft },
-  emptyShiftTitle: { fontSize: 15, fontWeight: "800", color: Colors.foreground },
-  emptyShiftText: { fontSize: 13, color: Colors.muted, textAlign: "center" },
-  shiftRunCard: { backgroundColor: Colors.card, borderRadius: Radius.xl, padding: 16, flexDirection: "row", alignItems: "center", gap: 14, borderWidth: 1, borderColor: Colors.border, ...Shadow.soft },
-  shiftRunIconBox: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#10B981", alignItems: "center", justifyContent: "center" },
-  shiftRunOrg: { fontSize: 16, fontWeight: "900", color: Colors.foreground },
-  shiftRunMeta: { fontSize: 12, color: Colors.muted, marginTop: 2 },
-  shiftRunCounts: { fontSize: 13, color: Colors.primary, fontWeight: "800", marginTop: 4 },
+  safeArea: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+
+  // Header
+  header: {
+    borderRadius: Radius.lg,
+    padding: 16,
+    marginBottom: 16,
+    ...Shadow.glow,
+  },
+  headerTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  logoContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  roleBadge: {
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.3)",
+  },
+  headerLabel: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 1.5,
+    color: Colors.white,
+  },
+  logoutBtn: {
+    padding: 6,
+    borderRadius: Radius.sm,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+  },
+  driverProfile: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  driverAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#FFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  driverName: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#FFF",
+  },
+  driverDate: {
+    fontSize: 12,
+    color: "rgba(255, 255, 255, 0.85)",
+  },
+
+  // Progress & Summary Dashboard Card
+  progressCard: {
+    backgroundColor: Colors.card,
+    borderRadius: Radius.xl,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadow.card,
+  },
+  progressHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  progressTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: Colors.foreground,
+  },
+  progressSubtitle: {
+    fontSize: 12,
+    color: Colors.muted,
+    marginTop: 2,
+    fontWeight: "600",
+  },
+  progressBadge: {
+    width: 38,
+    height: 38,
+    borderRadius: Radius.md,
+    backgroundColor: `${Colors.primary}12`,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  progressBarTrack: {
+    height: 10,
+    borderRadius: Radius.full,
+    backgroundColor: Colors.mutedBg,
+    overflow: "hidden",
+    marginBottom: 16,
+  },
+  progressBarFill: {
+    height: "100%",
+    borderRadius: Radius.full,
+    backgroundColor: Colors.primary,
+  },
+  statsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    backgroundColor: Colors.mutedBg,
+    borderRadius: Radius.md,
+    paddingVertical: 10,
+  },
+  statChip: {
+    alignItems: "center",
+    flex: 1,
+  },
+  statChipNumber: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: Colors.foreground,
+  },
+  statChipLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: Colors.muted,
+    marginTop: 1,
+  },
+  statChipDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: Colors.border,
+  },
+
+  // Search Bar
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.card,
+    borderRadius: Radius.md,
+    paddingHorizontal: 12,
+    height: 44,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadow.card,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: Colors.foreground,
+  },
+
+  // Empty State Card
+  emptyCard: {
+    backgroundColor: Colors.card,
+    borderRadius: Radius.xl,
+    padding: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadow.card,
+  },
+  emptyIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: `${Colors.primary}12`,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: Colors.foreground,
+    textAlign: "center",
+  },
+  emptySub: {
+    fontSize: 13,
+    color: Colors.muted,
+    textAlign: "center",
+    marginTop: 6,
+    lineHeight: 20,
+    maxWidth: 320,
+  },
+
+  // Section Layout
+  sectionContainer: {
+    marginBottom: 20,
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: Colors.foreground,
+  },
+  sectionTitleCompleted: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: Colors.muted,
+  },
+  badgePendingCount: {
+    backgroundColor: `${Colors.info}20`,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: Radius.full,
+  },
+  badgePendingCountText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: Colors.info,
+  },
+  badgeCompletedCount: {
+    backgroundColor: `${Colors.success}20`,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: Radius.full,
+  },
+  badgeCompletedCountText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: Colors.success,
+  },
+
+  // Delivery Cards
+  deliveryCard: {
+    backgroundColor: Colors.card,
+    borderRadius: Radius.xl,
+    padding: 18,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadow.card,
+  },
+  deliveryCardCompleted: {
+    opacity: 0.75,
+    backgroundColor: "#F8FAFC",
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+    marginBottom: 10,
+  },
+  cardOrgName: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: Colors.foreground,
+  },
+  cardOrgNameCompleted: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: Colors.muted,
+    textDecorationLine: "line-through",
+  },
+  cardMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 4,
+  },
+  cardMetaText: {
+    fontSize: 12,
+    color: Colors.muted,
+  },
+  pendingStatusBadge: {
+    backgroundColor: "#DBEAFE",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.full,
+  },
+  pendingStatusText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#1E40AF",
+  },
+  completedStatusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#D1FAE5",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.full,
+  },
+  completedStatusText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#065F46",
+  },
+  notesBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
+    borderRadius: Radius.md,
+    padding: 10,
+    marginBottom: 12,
+  },
+  notesText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#92400E",
+    flex: 1,
+  },
+  recordBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.md,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 48,
+    ...Shadow.card,
+  },
+  recordBtnText: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#FFF",
+  },
+  completedMetaText: {
+    fontSize: 11,
+    color: Colors.muted,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  completedUpdateBtn: {
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  completedUpdateBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.primary,
+  },
+
+  // Modal Sheet
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.65)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    backgroundColor: Colors.card,
+    borderTopLeftRadius: Radius.xl,
+    borderTopRightRadius: Radius.xl,
+    maxHeight: "88%",
+    paddingBottom: Platform.OS === "ios" ? 34 : 20,
+    ...Shadow.glow,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 18,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  sheetSubTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.muted,
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: Colors.foreground,
+  },
+  closeBtn: {
+    padding: 6,
+  },
+  sheetBody: {
+    padding: 18,
+  },
+  sheetNotesBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF3C7",
+    borderRadius: Radius.md,
+    padding: 12,
+    marginBottom: 16,
+  },
+  sheetNotesText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#92400E",
+    flex: 1,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: Colors.foreground,
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  plantSelector: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 12,
+  },
+  plantChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.mutedBg,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  plantChipSelected: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  plantChipText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.foreground,
+  },
+  plantChipTextSelected: {
+    color: "#FFF",
+  },
+  qtyCard: {
+    backgroundColor: Colors.mutedBg,
+    borderRadius: Radius.md,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  qtyRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  qtyLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: Colors.foreground,
+    flex: 1,
+    marginRight: 8,
+  },
+  counterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  counterBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  qtyInput: {
+    width: 50,
+    height: 36,
+    backgroundColor: Colors.card,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    textAlign: "center",
+    fontSize: 15,
+    fontWeight: "800",
+    color: Colors.foreground,
+  },
+  quickAddRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8,
+    justifyContent: "flex-end",
+  },
+  quickAddBtn: {
+    backgroundColor: Colors.card,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  quickAddText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Colors.primary,
+  },
+  sheetFooter: {
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  submitBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.md,
+    paddingVertical: 14,
+    minHeight: 52,
+    ...Shadow.glow,
+  },
+  submitBtnText: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#FFF",
+  },
 });

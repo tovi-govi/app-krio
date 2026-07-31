@@ -20,6 +20,7 @@ export default function AdminPlantsScreen() {
   const [isEditing, setIsEditing] = useState(false);
   const [searchText, setSearchText] = useState("");
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingPlantId, setDeletingPlantId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
@@ -34,6 +35,8 @@ export default function AdminPlantsScreen() {
   }, [plants, searchText]);
 
   const handleSavePlant = async () => {
+    if (isSubmitting) return;
+
     if (!plant.name.trim()) {
       setToast({
         id: Date.now().toString(),
@@ -53,6 +56,8 @@ export default function AdminPlantsScreen() {
       });
       return;
     }
+
+    setIsSubmitting(true);
 
     try {
       await savePlant({
@@ -77,6 +82,8 @@ export default function AdminPlantsScreen() {
         title: "Save Failed",
         message: error.message || "Could not save plant record.",
       });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -151,8 +158,14 @@ export default function AdminPlantsScreen() {
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity style={[styles.saveBtn, { flex: 1 }]} onPress={handleSavePlant}>
-            <Text style={styles.saveText}>{isEditing ? "Update Plant" : "Save Plant Facility"}</Text>
+          <TouchableOpacity
+            style={[styles.saveBtn, { flex: 1 }, isSubmitting && { opacity: 0.6 }]}
+            onPress={handleSavePlant}
+            disabled={isSubmitting}
+          >
+            <Text style={styles.saveText}>
+              {isSubmitting ? "Saving..." : isEditing ? "Update Plant" : "Save Plant Facility"}
+            </Text>
           </TouchableOpacity>
         </View>
       </View>

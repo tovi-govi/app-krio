@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { Download, X, Calendar, Building2, Check, Mail } from "lucide-react-native";
 import { Colors, Radius, Shadow } from "@/constants/theme";
-import { Organization, DeliveryRecord } from "@/context/CartContext";
+import { Organization, DeliveryRecord, useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { aggregateMonthlyDeliveries, getMonthName } from "@/utils/invoiceAggregator";
 import { generateAndDownloadExcelInvoice, emailExcelInvoice } from "@/utils/excelInvoiceGenerator";
@@ -38,6 +38,7 @@ export default function DownloadInvoiceModal({
   deliveries,
 }: DownloadInvoiceModalProps) {
   const { user } = useAuth();
+  const { products } = useCart();
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [selectedOrgId, setSelectedOrgId] = useState<string>("ALL");
@@ -62,6 +63,8 @@ export default function DownloadInvoiceModal({
         month: selectedMonth,
         year: selectedYear,
         organizationId: selectedOrgId,
+        organizations,
+        products,
       });
 
       if (!result.hasData || result.rows.length === 0) {
@@ -116,6 +119,8 @@ export default function DownloadInvoiceModal({
         month: selectedMonth,
         year: selectedYear,
         organizationId: selectedOrgId,
+        organizations,
+        products,
       });
 
       if (!result.hasData || result.rows.length === 0) {

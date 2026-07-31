@@ -89,21 +89,16 @@ export default function AdminHomeScreen() {
       month,
       year,
       organizationId: "ALL",
+      organizations,
+      products,
     });
-  }, [deliveries, selectedInvoiceMonth]);
-
-  useEffect(() => {
-    if (!isLoading && (!user || user.role !== "admin")) {
-      router.replace("/login");
-    }
-  }, [isLoading, user]);
+  }, [deliveries, organizations, products, selectedInvoiceMonth]);
 
   if (isLoading || !user || user.role !== "admin") {
     return <View style={{ flex: 1, backgroundColor: Colors.background }} />;
   }
 
   const handleLogout = async () => {
-    router.replace("/login");
     await logout();
   };
 
@@ -112,9 +107,11 @@ export default function AdminHomeScreen() {
       <ScrollView style={styles.screen} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.header}>
           <View style={styles.headerTop}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-              <KrioLogo width={120} height={36} />
-              <Text style={styles.headerLabel}>ADMIN</Text>
+            <View style={styles.logoContainer}>
+              <KrioLogo width={120} height={36} preserveAspectRatio="xMinYMin meet" />
+              <View style={styles.roleBadge}>
+                <Text style={styles.headerLabel}>ADMIN</Text>
+              </View>
             </View>
             <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
               <LogOut size={18} color={Colors.white} />
@@ -244,7 +241,7 @@ export default function AdminHomeScreen() {
                   {selectedMonthData ? `${selectedMonthData.totalCases1l || 0} cases` : "0"}
                 </Text>
                 <Text style={[styles.excelTotalText, styles.colAmount, styles.cellTextCenter]}>
-                  —
+                  {selectedMonthData?.totalAmount ? `₹${selectedMonthData.totalAmount}` : "—"}
                 </Text>
               </View>
             </View>
@@ -340,7 +337,9 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 140, gap: 16, maxWidth: 960, width: "100%", alignSelf: "center" },
   header: { borderRadius: Radius.xl, padding: 24, gap: 14, marginBottom: 12 },
   headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  headerLabel: { fontSize: 11, fontWeight: "700", letterSpacing: 2, color: "rgba(255,255,255,0.82)" },
+  logoContainer: { flexDirection: "row", alignItems: "center", gap: 10 },
+  roleBadge: { backgroundColor: "rgba(255, 255, 255, 0.2)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.sm, borderWidth: 1, borderColor: "rgba(255, 255, 255, 0.3)" },
+  headerLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 1.5, color: Colors.white },
   headerTitle: { fontSize: 28, fontWeight: "900", color: Colors.white },
   headerSub: { fontSize: 13, lineHeight: 20, color: "rgba(255,255,255,0.82)" },
   logoutBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" },

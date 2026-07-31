@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { ArrowLeft, ClipboardList, PackageCheck, Truck } from "lucide-react-native";
+import { ArrowLeft, ClipboardList, PackageCheck, Truck, Tag } from "lucide-react-native";
 import { Colors, Radius, Shadow } from "@/constants/theme";
-import { useCart } from "@/context/CartContext";
+import { useCart, getOrganizationProductPrice } from "@/context/CartContext";
+import { calculateDeliveryRowAmount } from "@/utils/invoiceAggregator";
 import { useAuth } from "@/context/AuthContext";
 import SearchInput from "@/components/UI/SearchInput";
 
@@ -14,7 +15,7 @@ export default function OrganizationOrdersScreen() {
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const router = useRouter();
   const { user, isLoading } = useAuth();
-  const { orders, deliveries, organizations } = useCart();
+  const { products, orders, deliveries, organizations } = useCart();
   const [deliverySearchText, setDeliverySearchText] = useState("");
 
   const organization = useMemo(
@@ -58,13 +59,37 @@ export default function OrganizationOrdersScreen() {
     const fullFromOrders = organizationOrders.reduce((sum, o) => sum + o.items.reduce((q, i) => q + i.quantity, 0), 0);
     const emptyFromOrders = organizationOrders.reduce((sum, o) => sum + (o.emptyCansReturned ?? 0), 0);
 
+    const totalDeliveryValue = organizationDeliveries.reduce((sum, d) => {
+      return (
+        sum +
+        calculateDeliveryRowAmount(
+          d.fullCansLoaded,
+          d.cases200mlDelivered || 0,
+          d.cases500mlDelivered || 0,
+          d.cases1lDelivered || 0,
+          organization,
+          products
+        )
+      );
+    }, 0);
+
     return {
       totalDeliveries: organizationDeliveries.length,
       totalOrders: organizationOrders.length,
       fullCans: fullFromDeliveries + fullFromOrders,
       emptyCans: emptyFromDeliveries + emptyFromOrders,
+      totalValue: totalDeliveryValue,
     };
-  }, [organizationDeliveries, organizationOrders]);
+  }, [organizationDeliveries, organizationOrders, organization, products]);
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (!user) {
+      router.replace("/login");
+    } else if (user.role !== "admin") {
+      router.replace("/delivery");
+    }
+  }, [user, isLoading]);
 
   if (isLoading || !user || user.role !== "admin") {
     return <View style={{ flex: 1, backgroundColor: Colors.background }} />;
@@ -96,7 +121,7 @@ export default function OrganizationOrdersScreen() {
 
           <Text style={styles.headerLabel}>ORGANIZATION HISTORY</Text>
           <Text style={styles.headerTitle}>{organization.name}</Text>
-          <Text style={styles.headerSub}>A complete view of recorded deliveries, order activity, and can balances for this organization.</Text>
+          <Text style={styles.headerSub}>A complete view of recorded deliveries, order activity, custom rates, and can balances for this organization.</Text>
         </LinearGradient>
 
         <View style={styles.content}>
@@ -105,18 +130,29 @@ export default function OrganizationOrdersScreen() {
             <Text style={styles.orgInfo}>{organization.email ? organization.email : "No email"} • {organization.phone ? organization.phone : "No phone"}</Text>
             {organization.address ? <Text style={styles.orgInfo}>{organization.address}</Text> : null}
 
+            {/* Custom Pricing Summary */}
+            <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: Colors.border, gap: 4 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Tag size={13} color={Colors.primary} />
+                <Text style={{ fontSize: 12, fontWeight: "900", color: Colors.foreground }}>Organization Pricing Rates:</Text>
+              </View>
+              <Text style={{ fontSize: 12, color: Colors.muted, marginLeft: 19 }}>
+                {products.map((p) => `${p.size}: ₹${getOrganizationProductPrice(organization, p)}`).join(" • ")}
+              </Text>
+            </View>
+
             <View style={styles.statsRow}>
               <View style={styles.statBadge}>
                 <Text style={styles.statLabel}>Deliveries</Text>
                 <Text style={styles.statValue}>{orgStats.totalDeliveries}</Text>
               </View>
               <View style={styles.statBadge}>
-                <Text style={styles.statLabel}>Full Loaded</Text>
+                <Text style={styles.statLabel}>Full Cans</Text>
                 <Text style={styles.statValue}>{orgStats.fullCans}</Text>
               </View>
               <View style={styles.statBadge}>
-                <Text style={styles.statLabel}>Empty Returned</Text>
-                <Text style={styles.statValue}>{orgStats.emptyCans}</Text>
+                <Text style={styles.statLabel}>Total Billed</Text>
+                <Text style={[styles.statValue, { color: Colors.success }]}>₹{orgStats.totalValue}</Text>
               </View>
             </View>
           </View>
@@ -141,29 +177,46 @@ export default function OrganizationOrdersScreen() {
               </Text>
             </View>
           ) : (
-            filteredDeliveries.map((delivery) => (
-              <View key={delivery.id} style={styles.orderCard}>
-                <View style={styles.deliveryIconBox}>
-                  <Truck size={20} color={Colors.white} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.orderId}>Delivery Log</Text>
-                  <Text style={styles.orderText}>Full Cans Loaded: {delivery.fullCansLoaded} cans</Text>
-                  <Text style={styles.orderText}>Empty Cans Picked Up: {delivery.emptyCansReturned} cans</Text>
-                  <Text style={styles.orderText}>Delivered by: {delivery.deliveredBy || "Staff"}</Text>
-                  {delivery.plantName ? (
-                    <Text style={[styles.orderText, { color: Colors.primary, fontWeight: "800", marginTop: 2 }]}>
-                      Plant: {delivery.plantName}{delivery.plantLocation ? ` (${delivery.plantLocation})` : ""}
+            filteredDeliveries.map((delivery) => {
+              const deliveryVal = calculateDeliveryRowAmount(
+                delivery.fullCansLoaded,
+                delivery.cases200mlDelivered || 0,
+                delivery.cases500mlDelivered || 0,
+                delivery.cases1lDelivered || 0,
+                organization,
+                products
+              );
+
+              return (
+                <View key={delivery.id} style={styles.orderCard}>
+                  <View style={styles.deliveryIconBox}>
+                    <Truck size={20} color={Colors.white} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.orderId}>Delivery Log</Text>
+                    <Text style={styles.orderText}>Full Cans Loaded: {delivery.fullCansLoaded} cans</Text>
+                    {delivery.cases200mlDelivered ? <Text style={styles.orderText}>200ml Packs Delivered: {delivery.cases200mlDelivered} packs</Text> : null}
+                    {delivery.cases500mlDelivered ? <Text style={styles.orderText}>500ml Cases Delivered: {delivery.cases500mlDelivered} cases</Text> : null}
+                    {delivery.cases1lDelivered ? <Text style={styles.orderText}>1L Cases Delivered: {delivery.cases1lDelivered} cases</Text> : null}
+                    <Text style={styles.orderText}>Empty Cans Picked Up: {delivery.emptyCansReturned} cans</Text>
+                    <Text style={styles.orderText}>Delivered by: {delivery.deliveredBy || "Staff"}</Text>
+                    {delivery.plantName ? (
+                      <Text style={[styles.orderText, { color: Colors.primary, fontWeight: "800", marginTop: 2 }]}>
+                        Plant: {delivery.plantName}{delivery.plantLocation ? ` (${delivery.plantLocation})` : ""}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <View style={styles.orderMeta}>
+                    <Text style={{ fontSize: 13, fontWeight: "900", color: Colors.primary, marginBottom: 4 }}>
+                      ₹{deliveryVal}
                     </Text>
-                  ) : null}
+                    <Text style={styles.orderMetaText}>
+                      {delivery.createdAt ? new Date(delivery.createdAt).toLocaleDateString() : ""}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.orderMeta}>
-                  <Text style={styles.orderMetaText}>
-                    {delivery.createdAt ? new Date(delivery.createdAt).toLocaleDateString() : ""}
-                  </Text>
-                </View>
-              </View>
-            ))
+              );
+            })
           )}
 
           {/* CUSTOMER ORDERS SECTION */}

@@ -6,6 +6,7 @@ import {
   deleteDoc,
   doc,
   getDocs,
+  increment,
   onSnapshot,
   runTransaction,
   serverTimestamp,
@@ -37,12 +38,21 @@ export type DeliveryAddress = {
   label: "Home" | "Work" | "Other";
 };
 
+export type OrganizationLocation = {
+  latitude: number;
+  longitude: number;
+  address: string;
+  placeId?: string;
+};
+
 export type Organization = {
   id: string;
   name: string;
   phone: string;
   email: string;
   address: string;
+  location?: OrganizationLocation | null;
+  pricing?: Record<string, number>;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -65,9 +75,6 @@ export type Order = {
   paymentMethod: string;
   paymentStatus?: "Pending Verification" | "Verified" | "Rejected";
   utr?: string;
-  razorpayPaymentLinkId?: string;
-  razorpayPaymentId?: string;
-  paymentReferenceId?: string;
   createdAt: string;
   updatedAt?: string;
 };
@@ -90,6 +97,20 @@ export type Plant = {
   name: string;
   location: string;
   createdAt?: string;
+  updatedAt?: string;
+};
+
+export type DeliverySchedule = {
+  id: string;
+  organizationId: string;
+  organizationName: string;
+  scheduledDate: string; // "YYYY-MM-DD"
+  notes?: string;
+  status: "Pending" | "Completed";
+  order: number;
+  completedAt?: string;
+  completedBy?: string;
+  createdAt: string;
   updatedAt?: string;
 };
 
@@ -116,13 +137,14 @@ const PRODUCTS_KEY = "krio_products";
 const ORGANIZATIONS_KEY = "krio_organizations";
 const NOTIFICATIONS_KEY = "krio_admin_notifications";
 const DELIVERIES_KEY = "krio_deliveries";
+const SCHEDULES_KEY = "krio_delivery_schedules";
 const PLANTS_KEY = "krio_plants";
 
 export const DEFAULT_PRODUCTS: Product[] = [
-  { id: "200ml", size: "200 ml Bottle", use: "On-the-go sip", emoji: "🧴", price: 10, stock: 100, isActive: true },
-  { id: "500ml", size: "500 ml Bottle", use: "Everyday carry", emoji: "🍶", price: 20, stock: 100, isActive: true },
-  { id: "1l", size: "1 Litre Bottle", use: "Desk & travel", emoji: "🫙", price: 30, stock: 100, isActive: true },
-  { id: "20l", size: "20 L Can", use: "Home & office dispenser", emoji: "🪣", price: 90, stock: 40, isActive: true },
+  { id: "200ml", size: "200 ml Bottle", use: "On-the-go sip", emoji: "🧴", price: 10, stock: 1050, isActive: true },
+  { id: "500ml", size: "500 ml Bottle", use: "Everyday carry", emoji: "🍶", price: 20, stock: 1200, isActive: true },
+  { id: "1l", size: "1 Litre Bottle", use: "Desk & travel", emoji: "🫙", price: 30, stock: 600, isActive: true },
+  { id: "20l", size: "20 L Can", use: "Home & office dispenser", emoji: "🪣", price: 90, stock: 200, isActive: true },
 ];
 
 export const DEFAULT_PLANTS: Plant[] = [
@@ -131,25 +153,23 @@ export const DEFAULT_PLANTS: Plant[] = [
 
 type CartContextValue = {
   products: Product[];
-  cart: CartItem[];
   orders: Order[];
   deliveries: DeliveryRecord[];
+  deliverySchedules: DeliverySchedule[];
   organizations: Organization[];
   plants: Plant[];
   firebaseReady: boolean;
-  totalItems: number;
-  total: number;
-  addToCart: (product: Product) => boolean;
-  increaseQuantity: (id: string) => boolean;
-  decreaseQuantity: (id: string) => void;
-  removeFromCart: (id: string) => void;
   addOrder: (order: Order) => Promise<void>;
-  deleteProduct: (id: string) => Promise<void>;
+  saveProduct: (product: Product) => Promise<void>;
   saveOrganization: (organization: Organization) => Promise<void>;
   deleteOrganization: (id: string) => Promise<void>;
   savePlant: (plant: Plant) => Promise<void>;
   deletePlant: (id: string) => Promise<void>;
   addDeliveryRecord: (delivery: DeliveryRecord) => Promise<void>;
+  addOrUpdateSchedule: (data: Partial<DeliverySchedule> & { organizationId: string; organizationName: string; scheduledDate: string }) => Promise<string>;
+  rescheduleOrganization: (scheduleId: string, newDate: string, newOrder?: number) => Promise<void>;
+  deleteSchedule: (scheduleId: string) => Promise<void>;
+  markScheduleCompleted: (scheduleId: string, completedBy: string) => Promise<void>;
   adminNotifications: AdminNotification[];
   markAdminNotificationRead: (id: string) => Promise<void>;
 };
@@ -164,7 +184,7 @@ function normalizeProduct(id: string, data: any): Product {
     use: String(data.use ?? ""),
     emoji: String(data.emoji ?? "💧"),
     price: Number(data.price ?? 0),
-    stock: Number(data.stock ?? 0),
+    stock: Math.max(0, Number(data.stock ?? 0)),
     isActive: Boolean(data.isActive ?? true),
     imageUrl: data.imageUrl || undefined,
   };
@@ -207,21 +227,82 @@ function normalizeOrder(id: string, data: any): Order {
     paymentMethod: data.paymentMethod ?? "UPI",
     paymentStatus: data.paymentStatus ?? "Pending Verification",
     utr: data.utr,
-    razorpayPaymentLinkId: data.razorpayPaymentLinkId,
-    razorpayPaymentId: data.razorpayPaymentId,
-    paymentReferenceId: data.paymentReferenceId,
     createdAt,
     updatedAt: data.updatedAt,
   };
 }
 
+export function getOrganizationProductPrice(
+  org: Organization | null | undefined,
+  product: Product | string,
+  defaultPrice?: number
+): number {
+  const prodId = typeof product === "string" ? product : product?.id;
+  const prodSize = typeof product === "object" && product ? product.size : undefined;
+  const fallback = typeof product === "object" && product ? product.price : (defaultPrice ?? 0);
+
+  if (!org || !org.pricing || typeof org.pricing !== "object") {
+    return fallback ?? 0;
+  }
+
+  if (prodId && org.pricing[prodId] !== undefined) {
+    const val = Number(org.pricing[prodId]);
+    if (!isNaN(val) && val >= 0) return val;
+  }
+
+  if (prodSize && org.pricing[prodSize] !== undefined) {
+    const val = Number(org.pricing[prodSize]);
+    if (!isNaN(val) && val >= 0) return val;
+  }
+
+  if (prodId) {
+    const idLower = prodId.toLowerCase();
+    const sizeLower = prodSize ? prodSize.toLowerCase() : "";
+    for (const [key, val] of Object.entries(org.pricing)) {
+      const keyLower = key.toLowerCase();
+      if (keyLower === idLower || (sizeLower && keyLower === sizeLower)) {
+        const numVal = Number(val);
+        if (!isNaN(numVal) && numVal >= 0) return numVal;
+      }
+    }
+  }
+
+  return fallback ?? 0;
+}
+
 function normalizeOrganization(id: string, data: any): Organization {
+  const loc = data.location;
+  const location: OrganizationLocation | null =
+    loc &&
+    typeof loc.latitude === "number" &&
+    typeof loc.longitude === "number" &&
+    !isNaN(loc.latitude) &&
+    !isNaN(loc.longitude)
+      ? {
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+          address: String(loc.address ?? data.address ?? ""),
+          placeId: loc.placeId ? String(loc.placeId) : undefined,
+        }
+      : null;
+
+  const rawPricing = data.pricing && typeof data.pricing === "object" ? data.pricing : {};
+  const pricing: Record<string, number> = {};
+  for (const [k, v] of Object.entries(rawPricing)) {
+    const num = Number(v);
+    if (!isNaN(num) && num >= 0) {
+      pricing[k] = num;
+    }
+  }
+
   return {
     id,
     name: String(data.name ?? ""),
     phone: String(data.phone ?? ""),
     email: String(data.email ?? ""),
     address: String(data.address ?? ""),
+    location,
+    pricing,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt,
   };
@@ -270,7 +351,34 @@ function normalizeDeliveryRecord(id: string, data: any): DeliveryRecord {
     plantLocation: data.plantLocation || undefined,
     fullCansLoaded: Number(data.fullCansLoaded ?? 0),
     emptyCansReturned: Number(data.emptyCansReturned ?? 0),
+    cases200mlDelivered: Number(data.cases200mlDelivered ?? 0),
+    cases500mlDelivered: Number(data.cases500mlDelivered ?? 0),
+    cases1lDelivered: Number(data.cases1lDelivered ?? 0),
     deliveredBy: String(data.deliveredBy ?? ""),
+    createdAt,
+    updatedAt: data.updatedAt,
+  };
+}
+
+function normalizeDeliverySchedule(id: string, data: any): DeliverySchedule {
+  const createdAtRaw = data.createdAt;
+  const createdAt =
+    createdAtRaw instanceof Date
+      ? createdAtRaw.toISOString()
+      : createdAtRaw && typeof createdAtRaw.toMillis === "function"
+      ? new Date(createdAtRaw.toMillis()).toISOString()
+      : String(createdAtRaw ?? new Date().toISOString());
+
+  return {
+    id,
+    organizationId: String(data.organizationId ?? ""),
+    organizationName: String(data.organizationName ?? ""),
+    scheduledDate: String(data.scheduledDate ?? ""),
+    notes: data.notes ? String(data.notes) : undefined,
+    status: data.status === "Completed" ? "Completed" : "Pending",
+    order: Number(data.order ?? 0),
+    completedAt: data.completedAt ? String(data.completedAt) : undefined,
+    completedBy: data.completedBy ? String(data.completedBy) : undefined,
     createdAt,
     updatedAt: data.updatedAt,
   };
@@ -329,6 +437,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [deliveries, setDeliveries] = useState<DeliveryRecord[]>([]);
+  const [deliverySchedules, setDeliverySchedules] = useState<DeliverySchedule[]>([]);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [plants, setPlants] = useState<Plant[]>(DEFAULT_PLANTS);
   const [adminNotifications, setAdminNotifications] = useState<AdminNotification[]>([]);
@@ -338,6 +447,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       const savedCart = await AsyncStorage.getItem(CART_KEY);
       const savedOrders = await AsyncStorage.getItem(ORDERS_KEY);
       const savedDeliveries = await AsyncStorage.getItem(DELIVERIES_KEY);
+      const savedSchedules = await AsyncStorage.getItem(SCHEDULES_KEY);
       const savedProducts = await AsyncStorage.getItem(PRODUCTS_KEY);
       const savedOrganizations = await AsyncStorage.getItem(ORGANIZATIONS_KEY);
       const savedPlants = await AsyncStorage.getItem(PLANTS_KEY);
@@ -346,6 +456,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       if (savedCart) setCart(JSON.parse(savedCart));
       if (!firebaseReady && savedOrders) setOrders(JSON.parse(savedOrders));
       if (!firebaseReady && savedDeliveries) setDeliveries(JSON.parse(savedDeliveries));
+      if (savedSchedules) setDeliverySchedules(JSON.parse(savedSchedules));
       if (savedOrganizations) setOrganizations(JSON.parse(savedOrganizations));
       if (savedPlants) setPlants(JSON.parse(savedPlants));
       if (savedNotifications) setAdminNotifications(JSON.parse(savedNotifications));
@@ -388,6 +499,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
       console.warn("[CartContext] Firestore deliveries listener error:", error);
     });
 
+    const unsubSchedules = onSnapshot(collection(db, "deliverySchedules"), (snapshot) => {
+      const nextSchedules = snapshot.docs
+        .map((item) => normalizeDeliverySchedule(item.id, item.data()))
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      console.log(`[CartContext] Received real-time deliverySchedules update: ${nextSchedules.length} record(s)`);
+      setDeliverySchedules(nextSchedules);
+    }, (error) => {
+      console.warn("[CartContext] Firestore deliverySchedules listener error:", error);
+    });
+
     const unsubNotifications = onSnapshot(collection(db, "adminNotifications"), (snapshot) => {
       const nextNotifications = snapshot.docs
         .map((item) => normalizeAdminNotification(item.id, item.data()))
@@ -419,11 +540,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
       unsubProducts();
       unsubOrders();
       unsubDeliveries();
+      unsubSchedules();
       unsubNotifications();
       unsubOrganizations();
       unsubPlants();
     };
-  }, []);
+  }, [firebaseReady]);
 
   useEffect(() => {
     AsyncStorage.setItem(CART_KEY, JSON.stringify(cart)).catch((e) => console.warn("Cart storage error:", e));
@@ -436,6 +558,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     AsyncStorage.setItem(DELIVERIES_KEY, JSON.stringify(deliveries)).catch((e) => console.warn("Deliveries storage error:", e));
   }, [deliveries]);
+
+  useEffect(() => {
+    AsyncStorage.setItem(SCHEDULES_KEY, JSON.stringify(deliverySchedules)).catch((e) => console.warn("Schedules storage error:", e));
+  }, [deliverySchedules]);
 
   useEffect(() => {
     AsyncStorage.setItem(PRODUCTS_KEY, JSON.stringify(products)).catch((e) => console.warn("Products storage error:", e));
@@ -453,59 +579,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
     AsyncStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(adminNotifications)).catch((e) => console.warn("Notifications storage error:", e));
   }, [adminNotifications]);
 
-  const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const total = cart.reduce((sum, item) => sum + item.quantity * item.price, 0);
-
-  const getProductStock = (id: string) => products.find((p) => p.id === id)?.stock ?? 0;
-
   const value = useMemo<CartContextValue>(() => ({
     products,
-    cart,
     orders,
     deliveries,
     organizations,
     plants,
     firebaseReady,
-    totalItems,
-    total,
     adminNotifications,
-    addToCart: (product) => {
-      const freshProduct = products.find((p) => p.id === product.id) ?? product;
-      const currentQty = cart.find((item) => item.id === freshProduct.id)?.quantity ?? 0;
-      if (!freshProduct.isActive || freshProduct.stock <= currentQty) return false;
-      setCart((current) => {
-        const existing = current.find((item) => item.id === freshProduct.id);
-        if (existing) {
-          return current.map((item) =>
-            item.id === freshProduct.id ? { ...item, quantity: item.quantity + 1 } : item
-          );
-        }
-        return [...current, { ...freshProduct, quantity: 1 }];
-      });
-      return true;
-    },
-    increaseQuantity: (id) => {
-      const currentQty = cart.find((item) => item.id === id)?.quantity ?? 0;
-      if (getProductStock(id) <= currentQty) return false;
-      setCart((current) =>
-        current.map((item) =>
-          item.id === id ? { ...item, quantity: item.quantity + 1 } : item
-        )
-      );
-      return true;
-    },
-    decreaseQuantity: (id) => {
-      setCart((current) =>
-        current
-          .map((item) =>
-            item.id === id ? { ...item, quantity: item.quantity - 1 } : item
-          )
-          .filter((item) => item.quantity > 0)
-      );
-    },
-    removeFromCart: (id) => {
-      setCart((current) => current.filter((item) => item.id !== id));
-    },
     addOrder: async (order) => {
       if (firebaseReady && db) {
         await runTransaction(db, async (transaction) => {
@@ -567,7 +648,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
             cleanFirestoreData({
               name: order.customer.name,
               phone: order.customer.phone,
-              role: "admin",
+              role: "customer",
               addresses: arrayUnion(cleanFirestoreData(order.customer.address)),
               updatedAt: serverTimestamp(),
             }),
@@ -654,7 +735,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         setDeliveries((current) => [cleanDelivery, ...current]);
       }
 
-      // Automatically update Inventory Stock in memory and Cloud Firestore
+      // Automatically update Inventory Stock in memory and Cloud Firestore with zero floor protection
       const stockDeductions: { [productId: string]: number } = {
         "20l": cleanDelivery.fullCansLoaded,
         "200ml": (cleanDelivery.cases200mlDelivered || 0) * 35, // 1 pack = 35 bottles
@@ -662,19 +743,36 @@ export function CartProvider({ children }: { children: ReactNode }) {
         "1l": (cleanDelivery.cases1lDelivered || 0) * 12,       // 1 case = 12 bottles
       };
 
-      setProducts((prevProducts) =>
-        prevProducts.map((prod) => {
-          const deduct = stockDeductions[prod.id] || 0;
+      if (firebaseReady && db) {
+        const firestoreDb = db;
+        for (const [prodId, deduct] of Object.entries(stockDeductions)) {
           if (deduct > 0) {
-            const newStock = Math.max(0, prod.stock - deduct);
-            if (firebaseReady && db) {
-              setDoc(doc(db, "products", prod.id), { stock: newStock, updatedAt: serverTimestamp() }, { merge: true }).catch(console.warn);
+            try {
+              await runTransaction(firestoreDb, async (transaction) => {
+                const prodRef = doc(firestoreDb, "products", prodId);
+                const prodDoc = await transaction.get(prodRef);
+                if (prodDoc.exists()) {
+                  const currentStock = Number(prodDoc.data().stock ?? 0);
+                  const nextStock = Math.max(0, currentStock - deduct);
+                  transaction.update(prodRef, {
+                    stock: nextStock,
+                    updatedAt: serverTimestamp(),
+                  });
+                }
+              });
+            } catch (e) {
+              console.warn(`[CartContext] Stock transaction error for product ${prodId}:`, e);
             }
-            return { ...prod, stock: newStock };
           }
-          return prod;
-        })
-      );
+        }
+      } else {
+        setProducts((prevProducts) =>
+          prevProducts.map((prod) => {
+            const deduct = stockDeductions[prod.id] || 0;
+            return deduct > 0 ? { ...prod, stock: Math.max(0, prod.stock - deduct) } : prod;
+          })
+        );
+      }
     },
     saveOrganization: async (organization) => {
       const cleanOrganization: Organization = {
@@ -691,7 +789,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
       if (firebaseReady && db) {
         await setDoc(doc(db, "organizations", cleanOrganization.id), {
-          ...cleanOrganization,
+          ...cleanFirestoreData(cleanOrganization),
           updatedAt: serverTimestamp(),
         }, { merge: true });
       } else {
@@ -722,7 +820,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
       if (firebaseReady && db) {
         await setDoc(doc(db, "plants", cleanPlant.id), {
-          ...cleanPlant,
+          ...cleanFirestoreData(cleanPlant),
           updatedAt: serverTimestamp(),
         }, { merge: true });
       } else {
@@ -740,13 +838,28 @@ export function CartProvider({ children }: { children: ReactNode }) {
         setPlants((current) => current.filter((p) => p.id !== id));
       }
     },
-    deleteProduct: async (id) => {
+    saveProduct: async (product) => {
+      const sanitizedProduct: Product = {
+        ...product,
+        stock: Math.max(0, Number(product.stock) || 0),
+        price: Math.max(0, Number(product.price) || 0),
+      };
       if (firebaseReady && db) {
-        await deleteDoc(doc(db, "products", id));
+        await setDoc(
+          doc(db, "products", sanitizedProduct.id),
+          {
+            ...cleanFirestoreData(sanitizedProduct),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
       } else {
-        setProducts((current) => current.filter((p) => p.id !== id));
+        setProducts((current) => {
+          const exists = current.some((p) => p.id === sanitizedProduct.id);
+          if (exists) return current.map((p) => (p.id === sanitizedProduct.id ? sanitizedProduct : p));
+          return [...current, sanitizedProduct];
+        });
       }
-      setCart((current) => current.filter((item) => item.id !== id));
     },
     markAdminNotificationRead: async (id) => {
       if (firebaseReady && db) {
@@ -755,7 +868,91 @@ export function CartProvider({ children }: { children: ReactNode }) {
         setAdminNotifications((current) => current.map((item) => item.id === id ? { ...item, read: true } : item));
       }
     },
-  }), [cart, orders, deliveries, products, organizations, plants, adminNotifications, totalItems, total]);
+    deliverySchedules,
+    addOrUpdateSchedule: async (data) => {
+      const id = data.id || `sched_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const schedule: DeliverySchedule = {
+        id,
+        organizationId: data.organizationId,
+        organizationName: data.organizationName,
+        scheduledDate: data.scheduledDate,
+        notes: data.notes ?? "",
+        status: data.status ?? "Pending",
+        order: data.order ?? 0,
+        completedAt: data.completedAt,
+        completedBy: data.completedBy,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (firebaseReady && db) {
+        await setDoc(
+          doc(db, "deliverySchedules", id),
+          {
+            ...cleanFirestoreData(schedule),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else {
+        setDeliverySchedules((current) => {
+          const exists = current.some((s) => s.id === id);
+          if (exists) return current.map((s) => (s.id === id ? schedule : s));
+          return [schedule, ...current];
+        });
+      }
+      return id;
+    },
+    rescheduleOrganization: async (scheduleId, newDate, newOrder) => {
+      if (firebaseReady && db) {
+        await setDoc(
+          doc(db, "deliverySchedules", scheduleId),
+          {
+            scheduledDate: newDate,
+            ...(newOrder !== undefined ? { order: newOrder } : {}),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else {
+        setDeliverySchedules((current) =>
+          current.map((s) =>
+            s.id === scheduleId
+              ? { ...s, scheduledDate: newDate, ...(newOrder !== undefined ? { order: newOrder } : {}) }
+              : s
+          )
+        );
+      }
+    },
+    deleteSchedule: async (scheduleId) => {
+      if (firebaseReady && db) {
+        await deleteDoc(doc(db, "deliverySchedules", scheduleId));
+      } else {
+        setDeliverySchedules((current) => current.filter((s) => s.id !== scheduleId));
+      }
+    },
+    markScheduleCompleted: async (scheduleId, completedBy) => {
+      const completedAt = new Date().toISOString();
+      if (firebaseReady && db) {
+        await setDoc(
+          doc(db, "deliverySchedules", scheduleId),
+          {
+            status: "Completed",
+            completedAt,
+            completedBy,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else {
+        setDeliverySchedules((current) =>
+          current.map((s) =>
+            s.id === scheduleId ? { ...s, status: "Completed", completedAt, completedBy } : s
+          )
+        );
+      }
+    },
+  }), [orders, deliveries, deliverySchedules, products, organizations, plants, adminNotifications]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

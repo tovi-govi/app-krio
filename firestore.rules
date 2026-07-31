@@ -1,0 +1,72 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for authentication and role checking
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email in [
+          "govindh@krioh2o.com",
+          "admin@krioh2o.com"
+        ]
+      );
+    }
+
+    function isStaff() {
+      return isAuthenticated();
+    }
+
+    // Admins collection: read by authenticated users, write only by admins
+    match /admins/{adminId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // Organizations collection: read by all staff, write by admins
+    match /organizations/{orgId} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+
+    // Products collection: read by all staff, write by admins
+    match /products/{productId} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+
+    // Plants collection: read by all staff, write by admins
+    match /plants/{plantId} {
+      allow read: if isStaff();
+      allow write: if isAdmin();
+    }
+
+    // Delivery Schedules: read & write by staff
+    match /deliverySchedules/{scheduleId} {
+      allow read: if isStaff();
+      allow create, update: if isStaff();
+      allow delete: if isAdmin();
+    }
+
+    // Deliveries records: read & create by staff, delete by admins
+    match /deliveries/{deliveryId} {
+      allow read: if isStaff();
+      allow create: if isStaff();
+      allow update, delete: if isAdmin();
+    }
+
+    // Admin Notifications: read & write by staff
+    match /adminNotifications/{notificationId} {
+      allow read, write: if isStaff();
+    }
+
+    // Default rule: block all unauthenticated or unmatched access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

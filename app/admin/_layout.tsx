@@ -1,7 +1,7 @@
 import { Slot, useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
 import { SafeAreaView, StyleSheet, View } from "react-native";
-import { Bell, Building2, Factory, Home, Package } from "lucide-react-native";
+import { Building2, Calendar, Factory, Home, Package } from "lucide-react-native";
 import { useAuth } from "@/context/AuthContext";
 import Dock from "../components/Dock";
 import { Colors, Shadow } from "@/constants/theme";
@@ -12,10 +12,13 @@ export default function AdminLayout() {
   const segments = useSegments();
 
   useEffect(() => {
-    if (!isLoading && (!user || user.role !== "admin")) {
+    if (isLoading) return;
+    if (!user) {
       router.replace("/login");
+    } else if (user.role !== "admin") {
+      router.replace("/delivery");
     }
-  }, [isLoading, user, router]);
+  }, [user, isLoading, router]);
 
   if (isLoading || !user || user.role !== "admin") {
     return <View style={{ flex: 1, backgroundColor: Colors.background }} />;
@@ -23,10 +26,10 @@ export default function AdminLayout() {
 
   const dockItems = [
     { icon: <Home size={18} color={Colors.white} />, label: "Home", onClick: () => router.push("/admin") },
+    { icon: <Calendar size={18} color={Colors.white} />, label: "Schedule", onClick: () => router.push("/admin/schedule") },
     { icon: <Building2 size={18} color={Colors.white} />, label: "Partners", onClick: () => router.push("/admin/organizations") },
     { icon: <Factory size={18} color={Colors.white} />, label: "Plants", onClick: () => router.push("/admin/plants") },
     { icon: <Package size={18} color={Colors.white} />, label: "Inventory", onClick: () => router.push("/admin/inventory") },
-    { icon: <Bell size={18} color={Colors.white} />, label: "Notifications", onClick: () => router.push("/admin/notifications") },
   ];
 
   return (

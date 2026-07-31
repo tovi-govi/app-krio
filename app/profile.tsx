@@ -21,7 +21,7 @@ export default function ProfileScreen() {
       router.back();
       return;
     }
-    router.replace("/(tabs)");
+    router.replace(user?.role === "delivery" ? "/delivery" : "/admin");
   };
 
   const handleLogout = () => {
@@ -31,7 +31,6 @@ export default function ProfileScreen() {
         text: "Logout",
         style: "destructive",
         onPress: async () => {
-          router.replace("/login");
           await logout();
         },
       },
@@ -59,7 +58,7 @@ export default function ProfileScreen() {
             </Text>
           </View>
           <Text style={styles.userName}>{user.name}</Text>
-          <Text style={styles.userSub}>{user.role === "admin" ? "Krio-H₂O Admin" : "Krio-H₂O Customer"}</Text>
+          <Text style={styles.userSub}>{user.role === "admin" ? "Krio-H₂O Admin" : "Krio-H₂O Delivery Staff"}</Text>
         </LinearGradient>
 
         <View style={styles.content}>

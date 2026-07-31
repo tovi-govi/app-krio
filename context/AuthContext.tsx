@@ -99,22 +99,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Firebase is not configured for staff login.");
     }
 
-    const credential = await signInWithEmailAndPassword(auth, email, password);
-    const adminProfile = await getAdminProfile(credential.user.uid, email);
+    try {
+      const credential = await signInWithEmailAndPassword(auth, email, password);
+      const adminProfile = await getAdminProfile(credential.user.uid, email);
 
-    if (!canAccessStaff(adminProfile)) {
-      await firebaseSignOut(auth).catch(() => undefined);
-      return null;
+      if (!canAccessStaff(adminProfile)) {
+        await firebaseSignOut(auth).catch(() => undefined);
+        return null;
+      }
+
+      const role = getStaffRole(adminProfile);
+      await persistUser({
+        name: adminProfile?.name || credential.user.displayName || (role === "delivery" ? "Krio Delivery" : "Krio Admin"),
+        phone: adminProfile?.phone || role,
+        email,
+        role,
+      });
+      return role;
+    } catch (err: any) {
+      if (
+        err.code === "auth/invalid-credential" ||
+        err.code === "auth/user-not-found" ||
+        err.code === "auth/wrong-password"
+      ) {
+        throw new Error("Invalid staff email or password. Please check your login credentials.");
+      }
+      if (err.code === "auth/too-many-requests") {
+        throw new Error("Access temporarily blocked due to multiple failed login attempts. Please try again later.");
+      }
+      if (err.code === "auth/network-request-failed") {
+        throw new Error("Network connection error. Please check your internet connection and try again.");
+      }
+      throw err;
     }
-
-    const role = getStaffRole(adminProfile);
-    await persistUser({
-      name: adminProfile?.name || credential.user.displayName || (role === "delivery" ? "Krio Delivery" : "Krio Admin"),
-      phone: adminProfile?.phone || role,
-      email,
-      role,
-    });
-    return role;
   };
 
   const logout = async () => {
@@ -123,8 +140,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
+  const value = React.useMemo(
+    () => ({ user, isLoading, loginAdmin, logout }),
+    [user, isLoading]
+  );
+
   return (
-    <AuthContext.Provider value={{ user, isLoading, loginAdmin, logout }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

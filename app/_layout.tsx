@@ -1,43 +1,35 @@
 import { useEffect } from "react";
-import { Platform } from "react-native";
 import { Stack, router, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
+import * as ScreenCapture from "expo-screen-capture";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
 
-// Global unhandled promise rejection handler
-if (typeof window !== "undefined" && window.addEventListener) {
-  window.addEventListener("unhandledrejection", (event) => {
-    console.warn("[App] Suppressed unhandled promise rejection:", event.reason);
-    if (event.preventDefault) event.preventDefault();
-  });
-}
-
-// Guard against SplashModule missing internal native methods on Web / Expo Go
-try {
-  SplashScreen.preventAutoHideAsync().catch(() => {});
-} catch {
-  // Ignore splash screen errors in unsupported environments
-}
-
-if (typeof globalThis !== "undefined") {
-  const expoModules = (globalThis as any).ExpoModules;
-  if (expoModules?.ExpoSplashScreen) {
-    if (typeof expoModules.ExpoSplashScreen.internalMaybeHideAsync !== "function") {
-      expoModules.ExpoSplashScreen.internalMaybeHideAsync = async () => false;
-    }
-    if (typeof expoModules.ExpoSplashScreen.internalPreventAutoHideAsync !== "function") {
-      expoModules.ExpoSplashScreen.internalPreventAutoHideAsync = async () => false;
-    }
-  }
-}
+// Keep the splash screen visible until we explicitly hide it below.
+// Any rejection here is harmless (e.g. already hidden / unsupported in this
+// environment), so we swallow it instead of letting it surface as an
+// "Unhandled promise rejection".
+SplashScreen.preventAutoHideAsync().catch(() => { });
 
 export const unstable_settings = {
   initialRouteName: "login",
 };
 
 export default function RootLayout() {
+  useEffect(() => {
+    // Explicitly clear native FLAG_SECURE window flag on Android to allow screensharing & screen recording
+    const enableSharing = async () => {
+      try {
+        await ScreenCapture.preventScreenCaptureAsync("init");
+        await ScreenCapture.allowScreenCaptureAsync("init");
+      } catch (e) {
+        // Fallback for environments without native screen capture support (e.g. web)
+      }
+    };
+    enableSharing();
+  }, []);
+
   return (
     <AuthProvider>
       <CartProvider>
@@ -55,7 +47,7 @@ function RootNavigator() {
   useEffect(() => {
     if (isLoading) return;
 
-    SplashScreen.hideAsync().catch(() => {});
+    SplashScreen.hideAsync().catch(() => { });
 
     const firstSegment = segments[0];
     const isLoginRoute = firstSegment === "login";
