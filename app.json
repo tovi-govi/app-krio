@@ -7,6 +7,12 @@
     "icon": "./assets/icon.png",
     "scheme": "krioh2o",
     "userInterfaceStyle": "light",
+    "updates": {
+      "url": "https://u.expo.dev/c194c68d-8f27-47d4-ace2-5b8abc94cf04"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
