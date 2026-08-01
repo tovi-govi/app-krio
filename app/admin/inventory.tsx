@@ -4,13 +4,14 @@ import { Package, Eye, EyeOff, Factory, Layers } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Colors, Radius, Shadow } from "@/constants/theme";
 import { Product, useCart, getProductTotalStockAcrossPlants, getPlantProductStock } from "@/context/CartContext";
+import { SkeletonList } from "@/components/UI/Skeleton";
 import Toast, { ToastMessage } from "@/components/UI/Toast";
 
 export default function AdminInventoryScreen() {
-  const { products, plants, saveProduct } = useCart();
+  const { products, plants, saveProduct, firebaseReady } = useCart();
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
-  // Compute overall inventory metrics across all plants (quantities only)
+  // Compute overall inventory metrics across all plants
   const inventorySummary = useMemo(() => {
     let totalStockAllPlants = 0;
 
@@ -113,7 +114,9 @@ export default function AdminInventoryScreen() {
       {/* Product Inventory List */}
       <Text style={styles.sectionTitle}>Product Stock Across Facilities</Text>
 
-      {inventorySummary.productSummaries.length === 0 ? (
+      {products.length === 0 && !firebaseReady ? (
+        <SkeletonList count={3} />
+      ) : inventorySummary.productSummaries.length === 0 ? (
         <View style={styles.emptyCard}>
           <Package size={32} color={Colors.muted} />
           <Text style={styles.emptyTitle}>No inventory products found</Text>
@@ -143,7 +146,7 @@ export default function AdminInventoryScreen() {
 
             {/* Combined Stock Metric */}
             <View style={styles.cardMetricsRow}>
-              <View style={styles.metricItem}>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.metricLabel}>Total Combined Stock</Text>
                 <Text style={styles.stockValueDisplay}>{product.combinedStock} units</Text>
               </View>
@@ -232,6 +235,35 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  stockLevelBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+  },
+  stockLevelText: {
+    fontSize: 12,
+    fontWeight: "900",
+  },
+  warningBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 10,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+  },
+  warningText: {
+    fontSize: 12,
+    fontWeight: "800",
+    flex: 1,
   },
   metricItem: { flex: 1 },
   metricLabel: { fontSize: 11, color: Colors.muted, fontWeight: "700" },

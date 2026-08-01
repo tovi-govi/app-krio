@@ -9,16 +9,15 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && (
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        request.auth.token.email in [
-          "govindh@krioh2o.com",
-          "admin@krioh2o.com"
-        ]
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
     }
 
     function isStaff() {
-      return isAuthenticated();
+      return isAuthenticated() && (
+        isAdmin() ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
     }
 
     // Admins collection: read by authenticated users, write only by admins

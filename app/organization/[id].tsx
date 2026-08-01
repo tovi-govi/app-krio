@@ -135,6 +135,7 @@ export default function OrganizationOrdersScreen() {
             <Text style={styles.orgName}>{organization.name}</Text>
             <Text style={styles.orgInfo}>{organization.email ? organization.email : "No email"} • {organization.phone ? organization.phone : "No phone"}</Text>
             {organization.address ? <Text style={styles.orgInfo}>{organization.address}</Text> : null}
+            {organization.gstNumber ? <Text style={[styles.orgInfo, { fontWeight: "700", color: Colors.primary }]}>GSTIN: {organization.gstNumber}</Text> : null}
 
             {/* Custom Pricing Summary */}
             <View style={{ marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: Colors.border, gap: 4 }}>
@@ -220,6 +221,13 @@ export default function OrganizationOrdersScreen() {
                       <Text style={styles.orderMetaText}>
                         {delivery.createdAt ? new Date(delivery.createdAt).toLocaleDateString() : ""}
                       </Text>
+                      {delivery.isEdited ? (
+                        <View style={{ backgroundColor: "#FEF3C7", paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.full, marginTop: 4, borderWidth: 1, borderColor: "#F59E0B" }}>
+                          <Text style={{ fontSize: 10, fontWeight: "800", color: "#B45309" }}>
+                            ✏️ Edited by {delivery.editedBy || "Staff"}
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
                   </View>
                 );

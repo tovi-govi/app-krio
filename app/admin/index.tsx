@@ -8,13 +8,14 @@ import KrioLogo from "@/assets/logos/krio-logo.svg";
 import { Colors, Radius, Shadow } from "@/constants/theme";
 import { useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
+import { SkeletonList } from "@/components/UI/Skeleton";
 import DownloadInvoiceModal from "../components/DownloadInvoiceModal";
 import { aggregateMonthlyDeliveries } from "@/utils/invoiceAggregator";
 import SearchInput from "@/components/UI/SearchInput";
 
 export default function AdminHomeScreen() {
   const { user, isLoading, logout } = useAuth();
-  const { products, orders, deliveries, organizations, plants } = useCart();
+  const { products, orders, deliveries, organizations, plants, firebaseReady } = useCart();
   const [selectedInvoiceMonth, setSelectedInvoiceMonth] = useState("");
   const [showInvoiceMenu, setShowInvoiceMenu] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
@@ -277,7 +278,9 @@ export default function AdminHomeScreen() {
           style={{ marginBottom: 4 }}
         />
 
-        {visibleDeliveries.length === 0 ? (
+        {!firebaseReady && deliveries.length === 0 ? (
+          <SkeletonList count={3} />
+        ) : visibleDeliveries.length === 0 ? (
           <View style={styles.emptyCard}>
             <Truck size={32} color={Colors.muted} />
             <Text style={styles.emptyTitle}>

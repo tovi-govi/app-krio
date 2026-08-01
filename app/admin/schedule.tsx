@@ -25,9 +25,13 @@ import {
   Search,
   FileText,
   AlertCircle,
+  Navigation,
+  Compass,
 } from "lucide-react-native";
 import { Colors, Radius, Shadow } from "@/constants/theme";
 import { DeliverySchedule, Organization, useCart } from "@/context/CartContext";
+import { optimizeDeliveryRoute } from "@/utils/routeOptimizer";
+import { SkeletonList } from "@/components/UI/Skeleton";
 import ConfirmModal from "@/components/UI/ConfirmModal";
 import Toast, { ToastMessage } from "@/components/UI/Toast";
 
@@ -46,12 +50,17 @@ function getTodayKey(): string {
 }
 
 export default function ScheduleScreen() {
-  const { organizations, deliverySchedules, addOrUpdateSchedule, rescheduleOrganization, deleteSchedule } = useCart();
+  const { organizations, deliverySchedules, addOrUpdateSchedule, rescheduleOrganization, deleteSchedule, firebaseReady } = useCart();
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [selectedDateKey, setSelectedDateKey] = useState<string>(getTodayKey());
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [mobileTab, setMobileTab] = useState<"calendar" | "partners">("calendar");
+
+  const selectedDateRoute = useMemo(() => {
+    const daySchedules = deliverySchedules.filter((s) => s.scheduledDate === selectedDateKey);
+    return optimizeDeliveryRoute(daySchedules, organizations);
+  }, [deliverySchedules, selectedDateKey, organizations]);
 
   // Edit Modal state
   const [editSchedule, setEditSchedule] = useState<DeliverySchedule | null>(null);
@@ -627,7 +636,30 @@ export default function ScheduleScreen() {
             </Text>
           </View>
 
-          {selectedDaySchedules.length === 0 ? (
+          {/* Route Optimization Summary Header */}
+          {selectedDateRoute.stops.length > 0 ? (
+            <View style={styles.routeHeaderCard}>
+              <View style={styles.routeHeaderRow}>
+                <Compass size={18} color={Colors.primary} />
+                <Text style={styles.routeHeaderTitle}>
+                  {selectedDateRoute.isOptimized ? "Optimized Delivery Route Order" : "Scheduled Delivery Route"}
+                </Text>
+                <View style={styles.routeBadge}>
+                  <Text style={styles.routeBadgeText}>
+                    {selectedDateRoute.isOptimized ? "⚡ Optimized Heuristic" : "Manual Order"}
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.routeHeaderMetrics}>
+                Total Est. Distance: {selectedDateRoute.totalDistanceKm} km • Total Est. Travel & Stop Time: {selectedDateRoute.totalTimeMins} mins
+              </Text>
+            </View>
+          ) : null}
+
+          {!firebaseReady && deliverySchedules.length === 0 ? (
+            <SkeletonList count={2} />
+          ) : selectedDateRoute.stops.length === 0 ? (
             <View style={styles.summaryEmpty}>
               <AlertCircle size={24} color={Colors.muted} />
               <Text style={styles.summaryEmptyText}>No deliveries scheduled for this date.</Text>
@@ -637,15 +669,18 @@ export default function ScheduleScreen() {
             </View>
           ) : (
             <View style={styles.summaryList}>
-              {selectedDaySchedules.map((sched, index) => (
+              {selectedDateRoute.stops.map((sched) => (
                 <View key={sched.id} style={styles.summaryItem}>
                   <View style={styles.summaryBadgeNumber}>
-                    <Text style={styles.summaryBadgeText}>{index + 1}</Text>
+                    <Text style={styles.summaryBadgeText}>Stop #{sched.stopNumber}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.summaryOrgName}>{sched.organizationName}</Text>
-                    {sched.notes ? (
-                      <Text style={styles.summaryNotes}>Note: {sched.notes}</Text>
+                    {sched.address ? (
+                      <Text style={styles.summaryNotes} numberOfLines={1}>📍 {sched.address}</Text>
+                    ) : null}
+                    {sched.estimatedArrival ? (
+                      <Text style={styles.summaryNotes}>Est. Arrival: {sched.estimatedArrival} {sched.distanceToNextKm ? `(Next stop: ${sched.distanceToNextKm} km)` : ""}</Text>
                     ) : null}
                   </View>
                   <View style={styles.statusPillContainer}>
@@ -1366,5 +1401,40 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     color: "#FFF",
+  },
+  routeHeaderCard: {
+    backgroundColor: `${Colors.primary}0D`,
+    borderRadius: Radius.lg,
+    padding: 12,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: `${Colors.primary}25`,
+  },
+  routeHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  routeHeaderTitle: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: Colors.foreground,
+    flex: 1,
+  },
+  routeBadge: {
+    backgroundColor: `${Colors.primary}20`,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: Radius.full,
+  },
+  routeBadgeText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: Colors.primary,
+  },
+  routeHeaderMetrics: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: Colors.muted,
   },
 });

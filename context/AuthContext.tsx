@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { signInWithEmailAndPassword, signOut as firebaseSignOut } from "firebase/auth";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut as firebaseSignOut } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, isFirebaseConfigured } from "@/services/firebase";
 
@@ -74,6 +74,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let unsubAuth: (() => void) | undefined;
+
     AsyncStorage.getItem(USER_KEY)
       .then((val) => {
         if (val) setUser(JSON.parse(val));
@@ -84,6 +86,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .finally(() => {
         setIsLoading(false);
       });
+
+    if (auth) {
+      unsubAuth = onAuthStateChanged(auth, async (firebaseUser) => {
+        if (!firebaseUser) {
+          await AsyncStorage.removeItem(USER_KEY).catch(() => undefined);
+          setUser(null);
+        }
+      });
+    }
+
+    return () => {
+      if (unsubAuth) unsubAuth();
+    };
   }, []);
 
   const persistUser = async (userData: User) => {

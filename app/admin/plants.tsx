@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { Factory, MapPin, Edit2, Trash2, Plus, Minus, Save, RefreshCw, CheckCircle2 } from "lucide-react-native";
+import { Factory, MapPin, Edit2, Trash2, Plus, Minus, Save, RefreshCw, CheckCircle2, AlertTriangle } from "lucide-react-native";
 import { Colors, Radius, Shadow } from "@/constants/theme";
 import { Plant, useCart, getPlantProductStock } from "@/context/CartContext";
+import { SkeletonList } from "@/components/UI/Skeleton";
 import ConfirmModal from "@/components/UI/ConfirmModal";
 import Toast, { ToastMessage } from "@/components/UI/Toast";
 
@@ -14,7 +15,7 @@ const emptyPlant = (): Plant => ({
 });
 
 export default function AdminPlantsScreen() {
-  const { plants, products, savePlant, deletePlant, updatePlantInventory } = useCart();
+  const { plants, products, savePlant, deletePlant, updatePlantInventory, firebaseReady } = useCart();
   const [selectedPlantId, setSelectedPlantId] = useState<string>("");
   const [plantForm, setPlantForm] = useState<Plant>(emptyPlant());
   const [isEditingFacility, setIsEditingFacility] = useState(false);
@@ -191,11 +192,11 @@ export default function AdminPlantsScreen() {
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <Toast toast={toast} onDismiss={() => setToast(null)} />
 
-      {/* Header */}
+      {/* Header Banner */}
       <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.header}>
         <View style={styles.headerTop}>
           <Factory size={24} color={Colors.white} />
-          <Text style={styles.headerTitle}>Plant Stock Management</Text>
+          <Text style={styles.headerTitle}>Bottling Plant Facilities</Text>
         </View>
         <Text style={styles.headerSub}>
           Select a bottling plant to view and adjust its individual stock levels. Changes saved here immediately update the database.
@@ -224,7 +225,9 @@ export default function AdminPlantsScreen() {
       </View>
 
       {/* Selected Plant Inventory Stock Management Table */}
-      {activePlant ? (
+      {!firebaseReady && plants.length === 0 ? (
+        <SkeletonList count={2} />
+      ) : activePlant ? (
         <View style={styles.stockCard}>
           <View style={styles.stockHeaderRow}>
             <View style={{ flex: 1 }}>
@@ -448,6 +451,19 @@ const styles = StyleSheet.create({
     color: Colors.foreground,
     borderWidth: 1,
     borderColor: Colors.border,
+  },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+  },
+  statusPillText: {
+    fontSize: 10,
+    fontWeight: "800",
   },
   saveStockBtn: {
     flexDirection: "row",

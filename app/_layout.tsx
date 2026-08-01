@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { Stack, router, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
-import * as ScreenCapture from "expo-screen-capture";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
 
@@ -17,19 +16,6 @@ export const unstable_settings = {
 };
 
 export default function RootLayout() {
-  useEffect(() => {
-    // Explicitly clear native FLAG_SECURE window flag on Android to allow screensharing & screen recording
-    const enableSharing = async () => {
-      try {
-        await ScreenCapture.preventScreenCaptureAsync("init");
-        await ScreenCapture.allowScreenCaptureAsync("init");
-      } catch (e) {
-        // Fallback for environments without native screen capture support (e.g. web)
-      }
-    };
-    enableSharing();
-  }, []);
-
   return (
     <AuthProvider>
       <CartProvider>

@@ -7,7 +7,10 @@ import {
   doc,
   getDocs,
   increment,
+  limit,
   onSnapshot,
+  orderBy,
+  query,
   runTransaction,
   serverTimestamp,
   setDoc,
@@ -131,6 +134,9 @@ export type DeliveryRecord = {
   deliveredBy: string;
   createdAt: string;
   updatedAt?: string;
+  isEdited?: boolean;
+  editedAt?: string;
+  editedBy?: string;
 };
 
 const CART_KEY = "krio_cart";
@@ -179,6 +185,7 @@ type CartContextValue = {
   deletePlant: (id: string) => Promise<void>;
   updatePlantInventory: (plantId: string, inventory: Record<string, number>) => Promise<void>;
   addDeliveryRecord: (delivery: DeliveryRecord) => Promise<void>;
+  updateDeliveryRecord: (deliveryId: string, updatedData: Partial<DeliveryRecord>, editedBy: string) => Promise<void>;
   addOrUpdateSchedule: (data: Partial<DeliverySchedule> & { organizationId: string; organizationName: string; scheduledDate: string }) => Promise<string>;
   rescheduleOrganization: (scheduleId: string, newDate: string, newOrder?: number) => Promise<void>;
   deleteSchedule: (scheduleId: string) => Promise<void>;
@@ -421,6 +428,9 @@ function normalizeDeliveryRecord(id: string, data: any): DeliveryRecord {
     deliveredBy: String(data.deliveredBy ?? ""),
     createdAt,
     updatedAt: data.updatedAt,
+    isEdited: Boolean(data.isEdited ?? false),
+    editedAt: data.editedAt ? String(data.editedAt) : undefined,
+    editedBy: data.editedBy ? String(data.editedBy) : undefined,
   };
 }
 
@@ -553,7 +563,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       console.warn("[CartContext] Firestore orders listener error:", error);
     });
 
-    const unsubDeliveries = onSnapshot(collection(db, "deliveries"), (snapshot) => {
+    const unsubDeliveries = onSnapshot(query(collection(db, "deliveries"), limit(200)), (snapshot) => {
       const nextDeliveries = snapshot.docs
         .map((item) => normalizeDeliveryRecord(item.id, item.data()))
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -573,7 +583,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       console.warn("[CartContext] Firestore deliverySchedules listener error:", error);
     });
 
-    const unsubNotifications = onSnapshot(collection(db, "adminNotifications"), (snapshot) => {
+    const unsubNotifications = onSnapshot(query(collection(db, "adminNotifications"), limit(100)), (snapshot) => {
       const nextNotifications = snapshot.docs
         .map((item) => normalizeAdminNotification(item.id, item.data()))
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -803,53 +813,186 @@ export function CartProvider({ children }: { children: ReactNode }) {
       }
 
       if (firebaseReady && db) {
-        const cleanedDeliveryPayload = cleanFirestoreData(cleanDelivery);
-        await setDoc(
-          doc(db, "deliveries", delivery.id),
-          {
-            ...cleanedDeliveryPayload,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
+        await runTransaction(db, async (transaction) => {
+          const plantRef = doc(db!, "plants", targetPlant.id);
+          const plantSnap = await transaction.get(plantRef);
+          if (!plantSnap.exists()) {
+            throw new Error(`Selected plant facility ${targetPlant.name} not found.`);
+          }
 
-        // Update Plant inventory in Cloud Firestore
-        await setDoc(
-          doc(db, "plants", targetPlant.id),
-          {
-            inventory: updatedPlantInventory,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
+          const currentPlantData = plantSnap.data();
+          const currentInv: Record<string, number> = currentPlantData.inventory || {};
+          const updatedInv: Record<string, number> = { ...currentInv };
 
-        const notificationRef = doc(db, "adminNotifications", `delivery-${delivery.id}`);
-        const notificationMsg = `${delivery.deliveredBy} recorded delivery for ${delivery.organizationName || "Organization"} from ${targetPlant.name}.`;
-        const cleanedNotificationPayload = cleanFirestoreData({
-          orderId: delivery.id,
-          title: "New Delivery Recorded",
-          message: notificationMsg,
-          customerName: delivery.organizationName || "Organization",
-          customerPhone: "",
-          total: 0,
-          read: false,
-          type: "NEW_ORDER",
-          createdAt: delivery.createdAt || new Date().toISOString(),
+          // Validate and compute plant inventory inside transaction
+          for (const [prodId, info] of Object.entries(deductions)) {
+            if (info.count > 0) {
+              const avail = Number(currentInv[prodId] ?? 0);
+              if (avail < info.count) {
+                throw new Error(
+                  `Insufficient stock at ${targetPlant.name} for ${info.size}. Available: ${avail}, Required: ${info.count}`
+                );
+              }
+              updatedInv[prodId] = avail - info.count;
+            }
+          }
+
+          const deliveryRef = doc(db!, "deliveries", delivery.id);
+          transaction.set(
+            deliveryRef,
+            {
+              ...cleanFirestoreData(cleanDelivery),
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+
+          transaction.update(plantRef, {
+            inventory: updatedInv,
+            updatedAt: serverTimestamp(),
+          });
+
+          const notificationRef = doc(db!, "adminNotifications", `delivery-${delivery.id}`);
+          const notificationMsg = `${delivery.deliveredBy} recorded delivery for ${delivery.organizationName || "Organization"} from ${targetPlant.name}.`;
+          transaction.set(
+            notificationRef,
+            {
+              ...cleanFirestoreData({
+                orderId: delivery.id,
+                title: "New Delivery Recorded",
+                message: notificationMsg,
+                customerName: delivery.organizationName || "Organization",
+                customerPhone: "",
+                total: 0,
+                read: false,
+                type: "NEW_ORDER",
+                createdAt: delivery.createdAt || new Date().toISOString(),
+              }),
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
         });
-
-        await setDoc(
-          notificationRef,
-          {
-            ...cleanedNotificationPayload,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
       } else {
         setDeliveries((current) => [cleanDelivery, ...current]);
         setPlants((current) =>
           current.map((p) => (p.id === targetPlant.id ? { ...p, inventory: updatedPlantInventory } : p))
         );
+      }
+    },
+    updateDeliveryRecord: async (deliveryId, updatedData, editedBy) => {
+      const existingDelivery = deliveries.find((d) => d.id === deliveryId);
+      if (!existingDelivery) {
+        throw new Error("Original delivery record not found.");
+      }
+
+      const plantId = updatedData.plantId || existingDelivery.plantId;
+      if (!plantId) {
+        throw new Error("Target plant facility is missing.");
+      }
+
+      const targetPlant = plants.find((p) => p.id === plantId);
+      if (!targetPlant) {
+        throw new Error("Selected plant facility could not be found.");
+      }
+
+      const oldCounts: Record<string, number> = {
+        "20l": Number(existingDelivery.fullCansLoaded || 0),
+        "200ml": Number(existingDelivery.cases200mlDelivered || 0) * 35,
+        "500ml": Number(existingDelivery.cases500mlDelivered || 0) * 24,
+        "1l": Number(existingDelivery.cases1lDelivered || 0) * 12,
+      };
+
+      const newFullCans = updatedData.fullCansLoaded !== undefined ? Number(updatedData.fullCansLoaded) : existingDelivery.fullCansLoaded;
+      const newCases200 = updatedData.cases200mlDelivered !== undefined ? Number(updatedData.cases200mlDelivered) : (existingDelivery.cases200mlDelivered || 0);
+      const newCases500 = updatedData.cases500mlDelivered !== undefined ? Number(updatedData.cases500mlDelivered) : (existingDelivery.cases500mlDelivered || 0);
+      const newCases1l = updatedData.cases1lDelivered !== undefined ? Number(updatedData.cases1lDelivered) : (existingDelivery.cases1lDelivered || 0);
+
+      const newCounts: Record<string, number> = {
+        "20l": newFullCans,
+        "200ml": newCases200 * 35,
+        "500ml": newCases500 * 24,
+        "1l": newCases1l * 12,
+      };
+
+      const editedAt = new Date().toISOString();
+      const updatedDelivery: DeliveryRecord = {
+        ...existingDelivery,
+        ...updatedData,
+        fullCansLoaded: newFullCans,
+        emptyCansReturned: updatedData.emptyCansReturned !== undefined ? Number(updatedData.emptyCansReturned) : existingDelivery.emptyCansReturned,
+        cases200mlDelivered: newCases200,
+        cases500mlDelivered: newCases500,
+        cases1lDelivered: newCases1l,
+        isEdited: true,
+        editedAt,
+        editedBy,
+      };
+
+      if (firebaseReady && db) {
+        await runTransaction(db, async (transaction) => {
+          const plantRef = doc(db!, "plants", targetPlant.id);
+          const plantSnap = await transaction.get(plantRef);
+          if (!plantSnap.exists()) {
+            throw new Error(`Plant facility ${targetPlant.name} not found.`);
+          }
+
+          const currentPlantData = plantSnap.data();
+          const currentInv: Record<string, number> = currentPlantData.inventory || {};
+          const updatedInv: Record<string, number> = { ...currentInv };
+
+          const prodInfo: Record<string, string> = { "20l": "20L Can", "200ml": "200ml Pack", "500ml": "500ml Case", "1l": "1L Case" };
+          for (const [prodId, newDeduction] of Object.entries(newCounts)) {
+            const oldDeduction = oldCounts[prodId] || 0;
+            const diff = newDeduction - oldDeduction;
+            const currentStock = Number(currentInv[prodId] ?? 0);
+
+            if (diff > 0 && currentStock < diff) {
+              throw new Error(
+                `Insufficient stock at ${targetPlant.name} for ${prodInfo[prodId]}. Available: ${currentStock}, Additional needed: ${diff}`
+              );
+            }
+            updatedInv[prodId] = Math.max(0, currentStock - diff);
+          }
+
+          const deliveryRef = doc(db!, "deliveries", deliveryId);
+          transaction.set(
+            deliveryRef,
+            {
+              ...cleanFirestoreData(updatedDelivery),
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+
+          transaction.update(plantRef, {
+            inventory: updatedInv,
+            updatedAt: serverTimestamp(),
+          });
+
+          const notificationRef = doc(db!, "adminNotifications", `delivery-edit-${deliveryId}-${Date.now()}`);
+          const notificationMsg = `${editedBy} edited delivery for ${updatedDelivery.organizationName || "Organization"} (Cans: ${existingDelivery.fullCansLoaded} ➔ ${newFullCans}).`;
+          transaction.set(
+            notificationRef,
+            {
+              ...cleanFirestoreData({
+                orderId: deliveryId,
+                title: "Delivery Record Edited ✏️",
+                message: notificationMsg,
+                customerName: updatedDelivery.organizationName || "Organization",
+                customerPhone: "",
+                total: 0,
+                read: false,
+                type: "NEW_ORDER",
+                createdAt: editedAt,
+              }),
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        });
+      } else {
+        setDeliveries((current) => current.map((d) => (d.id === deliveryId ? updatedDelivery : d)));
       }
     },
     saveOrganization: async (organization) => {

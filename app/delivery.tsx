@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -31,11 +32,15 @@ import {
   X,
   Factory,
   ChevronDown,
+  Navigation,
+  Compass,
 } from "lucide-react-native";
 import KrioLogo from "@/assets/logos/krio-logo.svg";
 import { Colors, Radius, Shadow } from "@/constants/theme";
-import { DeliverySchedule, Organization, useCart } from "@/context/CartContext";
+import { DeliveryRecord, DeliverySchedule, Organization, useCart } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
+import { SkeletonList } from "@/components/UI/Skeleton";
+import { optimizeDeliveryRoute } from "@/utils/routeOptimizer";
 import ConfirmModal from "@/components/UI/ConfirmModal";
 import Toast, { ToastMessage } from "@/components/UI/Toast";
 
@@ -48,6 +53,7 @@ export default function DeliveryScreen() {
     deliverySchedules,
     plants,
     addDeliveryRecord,
+    updateDeliveryRecord,
     markScheduleCompleted,
   } = useCart();
 
@@ -119,6 +125,45 @@ export default function DeliveryScreen() {
     return filteredSchedules.filter((s) => s.status === "Completed");
   }, [filteredSchedules]);
 
+  // Route Optimization for today's deliveries
+  const todayOptimizedRoute = useMemo(() => {
+    return optimizeDeliveryRoute(todaySchedules, organizations);
+  }, [todaySchedules, organizations]);
+
+  const nextPendingStop = useMemo(() => {
+    return todayOptimizedRoute.stops.find((s) => s.status !== "Completed") || null;
+  }, [todayOptimizedRoute]);
+
+  const handleNavigateToNextStop = () => {
+    if (!nextPendingStop) return;
+    const org = organizations.find((o) => o.id === nextPendingStop.organizationId);
+    let query = "";
+    if (org?.location?.latitude && org?.location?.longitude) {
+      query = `${org.location.latitude},${org.location.longitude}`;
+    } else if (org?.address && org.address.trim()) {
+      query = encodeURIComponent(org.address.trim());
+    } else if (nextPendingStop.organizationName) {
+      query = encodeURIComponent(nextPendingStop.organizationName.trim());
+    }
+
+    if (query) {
+      const mapsUrl = Platform.OS === "android"
+        ? `google.navigation:q=${query}`
+        : `https://www.google.com/maps/dir/?api=1&destination=${query}`;
+
+      Linking.openURL(mapsUrl).catch(() => {
+        Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${query}`);
+      });
+    } else {
+      setToast({
+        id: Date.now().toString(),
+        type: "warning",
+        title: "Location Unavailable",
+        message: "No address or GPS coordinates saved for this organization.",
+      });
+    }
+  };
+
   // Stats calculation
   const totalCount = todaySchedules.length;
   const completedCount = todaySchedules.filter((s) => s.status === "Completed").length;
@@ -128,6 +173,7 @@ export default function DeliveryScreen() {
   // Delivery Modal State (when recording delivery for a selected card)
   const [activeSchedule, setActiveSchedule] = useState<DeliverySchedule | null>(null);
   const [selectedPlantId, setSelectedPlantId] = useState<string | null>(null);
+  const [editingDeliveryRecord, setEditingDeliveryRecord] = useState<DeliveryRecord | null>(null);
 
   const [fullCansLoaded, setFullCansLoaded] = useState("");
   const [emptyCansReturned, setEmptyCansReturned] = useState("");
@@ -156,6 +202,24 @@ export default function DeliveryScreen() {
     [plants, selectedPlantId]
   );
 
+  const openInGoogleMaps = (org?: Organization | null, fallbackName?: string) => {
+    let query = "";
+    if (org?.location?.latitude && org?.location?.longitude) {
+      query = `${org.location.latitude},${org.location.longitude}`;
+    } else if (org?.address && org.address.trim()) {
+      query = encodeURIComponent(org.address.trim());
+    } else if (fallbackName && fallbackName.trim()) {
+      query = encodeURIComponent(fallbackName.trim());
+    }
+
+    if (query) {
+      const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${query}`;
+      Linking.openURL(mapsUrl).catch((err) => {
+        console.error("Failed to open Google Maps:", err);
+      });
+    }
+  };
+
   useEffect(() => {
     if (isLoading) return;
     if (!user) {
@@ -176,11 +240,28 @@ export default function DeliveryScreen() {
   // Open Log Delivery modal for a specific schedule
   const handleOpenDeliveryModal = (schedule: DeliverySchedule) => {
     setActiveSchedule(schedule);
-    setFullCansLoaded("");
-    setEmptyCansReturned("");
-    setCases200ml("");
-    setCases500ml("");
-    setCases1l("");
+    const existing = deliveries.find(
+      (d) =>
+        (d.organizationId && d.organizationId === schedule.organizationId) ||
+        (d.organizationName && d.organizationName.toLowerCase() === schedule.organizationName.toLowerCase())
+    );
+
+    if (existing && schedule.status === "Completed") {
+      setEditingDeliveryRecord(existing);
+      setFullCansLoaded(existing.fullCansLoaded ? String(existing.fullCansLoaded) : "");
+      setEmptyCansReturned(existing.emptyCansReturned ? String(existing.emptyCansReturned) : "");
+      setCases200ml(existing.cases200mlDelivered ? String(existing.cases200mlDelivered) : "");
+      setCases500ml(existing.cases500mlDelivered ? String(existing.cases500mlDelivered) : "");
+      setCases1l(existing.cases1lDelivered ? String(existing.cases1lDelivered) : "");
+      if (existing.plantId) setSelectedPlantId(existing.plantId);
+    } else {
+      setEditingDeliveryRecord(null);
+      setFullCansLoaded("");
+      setEmptyCansReturned("");
+      setCases200ml("");
+      setCases500ml("");
+      setCases1l("");
+    }
   };
 
   const handleFullCansTextChange = (text: string) => {
@@ -382,37 +463,66 @@ export default function DeliveryScreen() {
       const c1l = Number(cases1l) || 0;
       const deliveryId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-      const payload = {
-        id: deliveryId,
-        organizationId: activeSchedule.organizationId,
-        organizationName: activeSchedule.organizationName,
-        plantId: selectedPlant?.id,
-        plantName: selectedPlant?.name || "Main Plant",
-        plantLocation: selectedPlant?.location || "",
-        fullCansLoaded: loaded,
-        emptyCansReturned: emptyReturned,
-        cases200mlDelivered: c200,
-        cases500mlDelivered: c500,
-        cases1lDelivered: c1l,
-        deliveredBy: user.name,
-        createdAt: new Date().toISOString(),
-      };
+      if (editingDeliveryRecord) {
+        await updateDeliveryRecord(
+          editingDeliveryRecord.id,
+          {
+            fullCansLoaded: loaded,
+            emptyCansReturned: emptyReturned,
+            cases200mlDelivered: c200,
+            cases500mlDelivered: c500,
+            cases1lDelivered: c1l,
+            plantId: selectedPlant?.id,
+            plantName: selectedPlant?.name || "Main Plant",
+            plantLocation: selectedPlant?.location || "",
+          },
+          user.name
+        );
 
-      // 1. Add delivery log to Firestore
-      await addDeliveryRecord(payload);
+        setShowConfirmModal(false);
+        setActiveSchedule(null);
+        setEditingDeliveryRecord(null);
 
-      // 2. Mark schedule as Completed in Firestore
-      await markScheduleCompleted(activeSchedule.id, user.name);
+        setToast({
+          id: Date.now().toString(),
+          type: "success",
+          title: "Delivery Record Updated!",
+          message: `Updated delivery run for ${activeSchedule.organizationName}. Marked as Edited.`,
+        });
+      } else {
+        const payload = {
+          id: deliveryId,
+          organizationId: activeSchedule.organizationId,
+          organizationName: activeSchedule.organizationName,
+          plantId: selectedPlant?.id,
+          plantName: selectedPlant?.name || "Main Plant",
+          plantLocation: selectedPlant?.location || "",
+          fullCansLoaded: loaded,
+          emptyCansReturned: emptyReturned,
+          cases200mlDelivered: c200,
+          cases500mlDelivered: c500,
+          cases1lDelivered: c1l,
+          deliveredBy: user.name,
+          createdAt: new Date().toISOString(),
+        };
 
-      setShowConfirmModal(false);
-      setActiveSchedule(null);
+        // 1. Add delivery log to Firestore
+        await addDeliveryRecord(payload);
 
-      setToast({
-        id: Date.now().toString(),
-        type: "success",
-        title: "Delivery Completed!",
-        message: `Logged delivery for ${activeSchedule.organizationName}. Stock updated automatically!`,
-      });
+        // 2. Mark schedule as Completed in Firestore
+        await markScheduleCompleted(activeSchedule.id, user.name);
+
+        setShowConfirmModal(false);
+        setActiveSchedule(null);
+        setEditingDeliveryRecord(null);
+
+        setToast({
+          id: Date.now().toString(),
+          type: "success",
+          title: "Delivery Completed!",
+          message: `Logged delivery for ${activeSchedule.organizationName}. Stock updated automatically!`,
+        });
+      }
     } catch (error: any) {
       console.error("Failed to save delivery:", error);
       setToast({
@@ -501,6 +611,47 @@ export default function DeliveryScreen() {
           </View>
         </View>
 
+        {/* ONE-TAP NEXT STOP NAVIGATION BANNER */}
+        {nextPendingStop ? (
+          <View style={styles.navBannerCard}>
+            <View style={styles.navBannerHeader}>
+              <Compass size={20} color={Colors.white} />
+              <Text style={styles.navBannerTitle}>Next Stop #{nextPendingStop.stopNumber} (Optimized)</Text>
+              <View style={styles.navBannerBadge}>
+                <Text style={styles.navBannerBadgeText}>Pending Run</Text>
+              </View>
+            </View>
+
+            <Text style={styles.navOrgName}>{nextPendingStop.organizationName}</Text>
+            {nextPendingStop.address ? (
+              <Text style={styles.navAddress} numberOfLines={1}>📍 {nextPendingStop.address}</Text>
+            ) : null}
+
+            {nextPendingStop.estimatedArrival ? (
+              <Text style={styles.navMeta}>
+                Est. Arrival: {nextPendingStop.estimatedArrival} {nextPendingStop.distanceToNextKm ? `• Dist to Next: ${nextPendingStop.distanceToNextKm} km` : ""}
+              </Text>
+            ) : null}
+
+            <TouchableOpacity
+              style={styles.navActionBtn}
+              onPress={handleNavigateToNextStop}
+              activeOpacity={0.85}
+            >
+              <Navigation size={18} color={Colors.primary} style={{ marginRight: 8 }} />
+              <Text style={styles.navActionBtnText}>Navigate to Next Stop (Google Maps)</Text>
+            </TouchableOpacity>
+          </View>
+        ) : todaySchedules.length > 0 && remainingCount === 0 ? (
+          <View style={styles.completedBannerCard}>
+            <CheckCircle2 size={24} color="#059669" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.completedBannerTitle}>All Route Stops Completed!</Text>
+              <Text style={styles.completedBannerSub}>All scheduled partner organization deliveries for today have been completed.</Text>
+            </View>
+          </View>
+        ) : null}
+
         {/* Search Bar */}
         {totalCount > 0 && (
           <View style={styles.searchContainer}>
@@ -520,8 +671,10 @@ export default function DeliveryScreen() {
           </View>
         )}
 
-        {/* EMPTY STATE */}
-        {totalCount === 0 && (
+        {/* SKELETON LOADER */}
+        {isLoading ? (
+          <SkeletonList count={3} />
+        ) : totalCount === 0 ? (
           <View style={styles.emptyCard}>
             <View style={styles.emptyIconCircle}>
               <CalendarIcon size={36} color={Colors.primary} />
@@ -531,7 +684,7 @@ export default function DeliveryScreen() {
               Your route is clear for today! Check back later or contact your administrator for schedule updates.
             </Text>
           </View>
-        )}
+        ) : null}
 
         {/* PENDING DELIVERIES SECTION */}
         {pendingSchedules.length > 0 && (
@@ -564,6 +717,14 @@ export default function DeliveryScreen() {
                           <Text style={styles.cardMetaText}>{org.phone}</Text>
                         </View>
                       ) : null}
+                      <TouchableOpacity
+                        style={styles.openMapsBtn}
+                        onPress={() => openInGoogleMaps(org, schedule.organizationName)}
+                        activeOpacity={0.8}
+                      >
+                        <Navigation size={13} color={Colors.primary} />
+                        <Text style={styles.openMapsBtnText}>Open in Google Maps</Text>
+                      </TouchableOpacity>
                     </View>
 
                     <View style={styles.pendingStatusBadge}>
@@ -607,6 +768,11 @@ export default function DeliveryScreen() {
 
             {completedSchedules.map((schedule) => {
               const org = organizations.find((o) => o.id === schedule.organizationId);
+              const deliveryRec = deliveries.find(
+                (d) =>
+                  (d.organizationId && d.organizationId === schedule.organizationId) ||
+                  (d.organizationName && d.organizationName.toLowerCase() === schedule.organizationName.toLowerCase())
+              );
               return (
                 <View key={schedule.id} style={[styles.deliveryCard, styles.deliveryCardCompleted]}>
                   <View style={styles.cardHeader}>
@@ -620,18 +786,33 @@ export default function DeliveryScreen() {
                           </Text>
                         </View>
                       ) : null}
+                      <TouchableOpacity
+                        style={styles.openMapsBtn}
+                        onPress={() => openInGoogleMaps(org, schedule.organizationName)}
+                        activeOpacity={0.8}
+                      >
+                        <Navigation size={13} color={Colors.primary} />
+                        <Text style={styles.openMapsBtnText}>Open in Google Maps</Text>
+                      </TouchableOpacity>
                     </View>
 
-                    <View style={styles.completedStatusBadge}>
-                      <CheckCircle2 size={14} color="#065F46" style={{ marginRight: 4 }} />
-                      <Text style={styles.completedStatusText}>Completed</Text>
+                    <View style={{ alignItems: "flex-end", gap: 4 }}>
+                      <View style={styles.completedStatusBadge}>
+                        <CheckCircle2 size={14} color="#065F46" style={{ marginRight: 4 }} />
+                        <Text style={styles.completedStatusText}>Completed</Text>
+                      </View>
+                      {deliveryRec?.isEdited ? (
+                        <View style={styles.editedBadge}>
+                          <Text style={styles.editedBadgeText}>✏️ Edited by {deliveryRec.editedBy || "Staff"}</Text>
+                        </View>
+                      ) : null}
                     </View>
                   </View>
 
                   {/* Completed info */}
                   {schedule.completedBy ? (
                     <Text style={styles.completedMetaText}>
-                      Completed by {schedule.completedBy}
+                      Completed by {schedule.completedBy} {deliveryRec ? `(${deliveryRec.fullCansLoaded} cans loaded)` : ""}
                     </Text>
                   ) : null}
 
@@ -639,7 +820,7 @@ export default function DeliveryScreen() {
                     style={styles.completedUpdateBtn}
                     onPress={() => handleOpenDeliveryModal(schedule)}
                   >
-                    <Text style={styles.completedUpdateBtnText}>Log Additional Cans / Bottle Cases</Text>
+                    <Text style={styles.completedUpdateBtnText}>Edit Delivery Quantities</Text>
                   </TouchableOpacity>
                 </View>
               );
@@ -663,6 +844,14 @@ export default function DeliveryScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.sheetSubTitle}>Record Delivery Run</Text>
                   <Text style={styles.sheetTitle}>{activeSchedule.organizationName}</Text>
+                  <TouchableOpacity
+                    style={styles.openMapsBtn}
+                    onPress={() => openInGoogleMaps(activeOrg, activeSchedule.organizationName)}
+                    activeOpacity={0.8}
+                  >
+                    <Navigation size={13} color={Colors.primary} />
+                    <Text style={styles.openMapsBtnText}>Open Location in Google Maps</Text>
+                  </TouchableOpacity>
                 </View>
                 <TouchableOpacity onPress={() => setActiveSchedule(null)} style={styles.closeBtn}>
                   <X size={20} color={Colors.foreground} />
@@ -1379,6 +1568,37 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Colors.primary,
   },
+  openMapsBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: `${Colors.primary}12`,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: `${Colors.primary}30`,
+    marginTop: 6,
+    alignSelf: "flex-start",
+  },
+  openMapsBtnText: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: Colors.primary,
+  },
+  editedBadge: {
+    backgroundColor: `${Colors.warning}18`,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: `${Colors.warning}40`,
+  },
+  editedBadgeText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#D97706",
+  },
   sheetFooter: {
     paddingHorizontal: 18,
     paddingTop: 12,
@@ -1399,5 +1619,84 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "800",
     color: "#FFF",
+  },
+  navBannerCard: {
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.xl,
+    padding: 16,
+    marginBottom: 16,
+    gap: 8,
+    ...Shadow.glow,
+  },
+  navBannerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  navBannerTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: Colors.white,
+    flex: 1,
+  },
+  navBannerBadge: {
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: Radius.full,
+  },
+  navBannerBadgeText: {
+    fontSize: 10,
+    fontWeight: "900",
+    color: Colors.white,
+  },
+  navOrgName: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: Colors.white,
+  },
+  navAddress: {
+    fontSize: 12,
+    color: "rgba(255, 255, 255, 0.9)",
+  },
+  navMeta: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "rgba(255, 255, 255, 0.8)",
+  },
+  navActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: Colors.white,
+    borderRadius: Radius.lg,
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  navActionBtnText: {
+    fontSize: 14,
+    fontWeight: "900",
+    color: Colors.primary,
+  },
+  completedBannerCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#D1FAE5",
+    borderRadius: Radius.xl,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+  },
+  completedBannerTitle: {
+    fontSize: 15,
+    fontWeight: "900",
+    color: "#065F46",
+  },
+  completedBannerSub: {
+    fontSize: 12,
+    color: "#047857",
+    marginTop: 2,
   },
 });

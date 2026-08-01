@@ -5,6 +5,7 @@ import { router } from "expo-router";
 import { Building2, Edit2, Trash2, ChevronRight, MapPin, Tag } from "lucide-react-native";
 import { Colors, Radius, Shadow } from "@/constants/theme";
 import { Organization, OrganizationLocation, getOrganizationProductPrice, useCart } from "@/context/CartContext";
+import { SkeletonList } from "@/components/UI/Skeleton";
 import SearchInput from "@/components/UI/SearchInput";
 import ConfirmModal from "@/components/UI/ConfirmModal";
 import Toast, { ToastMessage } from "@/components/UI/Toast";
@@ -21,7 +22,7 @@ const emptyOrganization = (): Organization => ({
 });
 
 export default function AdminOrganizationsScreen() {
-  const { products, organizations, deliveries, saveOrganization, deleteOrganization } = useCart();
+  const { products, organizations, deliveries, saveOrganization, deleteOrganization, firebaseReady } = useCart();
   const [organization, setOrganization] = useState<Organization>(emptyOrganization());
   const [productPrices, setProductPrices] = useState<Record<string, string>>({});
   const [isEditing, setIsEditing] = useState(false);
@@ -374,7 +375,9 @@ export default function AdminOrganizationsScreen() {
         style={{ marginBottom: 4 }}
       />
 
-      {filteredOrganizations.length === 0 ? (
+      {!firebaseReady && organizations.length === 0 ? (
+        <SkeletonList count={3} />
+      ) : filteredOrganizations.length === 0 ? (
         <View style={styles.emptyCard}>
           <Building2 size={32} color={Colors.muted} />
           <Text style={styles.emptyTitle}>
