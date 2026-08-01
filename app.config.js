@@ -22,6 +22,7 @@ module.exports = ({ config }) => ({
       firebaseStorageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
       firebaseMessagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
       firebaseAppId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+      firebaseMeasurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID,
       // Server-only secrets are not included here.
     },
   },

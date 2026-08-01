@@ -16,6 +16,7 @@ const firebaseConfig = {
   storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || extra.firebaseStorageBucket,
   messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || extra.firebaseMessagingSenderId,
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || extra.firebaseAppId,
+  measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID || extra.firebaseMeasurementId,
 };
 
 export const isFirebaseConfigured = Boolean(
