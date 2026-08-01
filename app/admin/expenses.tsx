@@ -35,6 +35,7 @@ import {
   Trash,
 } from "lucide-react-native";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
+import * as DocumentPicker from "expo-document-picker";
 import { storage } from "@/services/firebase";
 import { Colors, Radius, Shadow } from "@/constants/theme";
 
@@ -118,39 +119,54 @@ export default function ExpensesScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploadingReceipt, setIsUploadingReceipt] = useState(false);
 
-  const handleFileUpload = async (file: File) => {
-    if (!file) return;
-    setIsUploadingReceipt(true);
+  const handlePickAndUploadInvoice = async () => {
     try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["image/*", "application/pdf"],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        return;
+      }
+
+      const pickedFile = result.assets[0];
+      if (!pickedFile || !pickedFile.uri) {
+        showToast("Invalid file selection. Please select a valid document or photo.");
+        return;
+      }
+
+      setIsUploadingReceipt(true);
+
       if (storage) {
-        const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const response = await fetch(pickedFile.uri);
+        const blob = await response.blob();
+        const rawName = pickedFile.name || `invoice_${Date.now()}`;
+        const cleanName = rawName.replace(/[^a-zA-Z0-9._-]/g, "_");
         const storageRef = ref(storage, `expenses/receipts/${Date.now()}_${cleanName}`);
-        await uploadBytes(storageRef, file);
+
+        await uploadBytes(storageRef, blob);
         const downloadUrl = await getDownloadURL(storageRef);
+
         setFormReceiptUrl(downloadUrl);
         showToast("Invoice uploaded to Cloud Storage!");
       } else {
+        const response = await fetch(pickedFile.uri);
+        const blob = await response.blob();
         const reader = new FileReader();
-        reader.onload = (e) => {
-          const result = e.target?.result as string;
-          if (result) {
-            setFormReceiptUrl(result);
-            showToast("Invoice attached successfully!");
+        reader.onloadend = () => {
+          const base64Uri = reader.result as string;
+          if (base64Uri) {
+            setFormReceiptUrl(base64Uri);
+            showToast("Invoice document attached!");
           }
         };
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(blob);
       }
     } catch (err: any) {
-      console.warn("Storage upload error, falling back to file reader:", err);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const result = e.target?.result as string;
-        if (result) {
-          setFormReceiptUrl(result);
-          showToast("Invoice attached successfully!");
-        }
-      };
-      reader.readAsDataURL(file);
+      console.error("Invoice upload error:", err);
+      showToast(`Upload failed: ${err.message || "Could not attach file"}`);
     } finally {
       setIsUploadingReceipt(false);
     }
@@ -924,39 +940,13 @@ export default function ExpensesScreen() {
                   </View>
                 ) : (
                   <View style={styles.uploadTriggerContainer}>
-                    {Platform.OS === "web" ? (
-                      <label htmlFor="expense-receipt-input" style={styles.webUploadLabel as any}>
-                        <UploadCloud size={20} color={AppColors.white} />
-                        <Text style={styles.webUploadLabelText}>Upload Invoice (Photo / PDF)</Text>
-                        <input
-                          id="expense-receipt-input"
-                          type="file"
-                          accept="image/*,application/pdf"
-                          style={{ display: "none" }}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handleFileUpload(file);
-                          }}
-                        />
-                      </label>
-                    ) : (
-                      <TouchableOpacity
-                        style={styles.nativeUploadBtn}
-                        onPress={() => {
-                          const input = document.createElement("input");
-                          input.type = "file";
-                          input.accept = "image/*,application/pdf";
-                          input.onchange = (e: any) => {
-                            const file = e.target?.files?.[0];
-                            if (file) handleFileUpload(file);
-                          };
-                          input.click();
-                        }}
-                      >
-                        <UploadCloud size={20} color={AppColors.white} />
-                        <Text style={styles.nativeUploadBtnText}>Upload Invoice (Photo / PDF)</Text>
-                      </TouchableOpacity>
-                    )}
+                    <TouchableOpacity
+                      style={styles.nativeUploadBtn}
+                      onPress={handlePickAndUploadInvoice}
+                    >
+                      <UploadCloud size={20} color={AppColors.white} />
+                      <Text style={styles.nativeUploadBtnText}>Upload Invoice (Photo / PDF)</Text>
+                    </TouchableOpacity>
                   </View>
                 )}
               </View>
