@@ -108,6 +108,16 @@ export default function AdminOrganizationsScreen() {
       return;
     }
 
+    if (!organization.gstNumber || !organization.gstNumber.trim()) {
+      setToast({
+        id: Date.now().toString(),
+        type: "warning",
+        title: "Missing GST Number",
+        message: "Please enter a valid GST Number.",
+      });
+      return;
+    }
+
     // Validate product pricing for all products
     const newPricing: Record<string, number> = {};
     for (const prod of products) {
@@ -146,6 +156,7 @@ export default function AdminOrganizationsScreen() {
         phone: organization.phone.trim(),
         email: organization.email.trim(),
         address: organization.address.trim(),
+        gstNumber: (organization.gstNumber || "").trim(),
         pricing: newPricing,
       });
 
@@ -252,6 +263,14 @@ export default function AdminOrganizationsScreen() {
           value={organization.address}
           onChangeText={(address) => setOrganization((state) => ({ ...state, address }))}
           multiline
+        />
+        <TextInput
+          style={styles.input}
+          placeholder="GST Number (e.g. 22AAAAA0000A1Z5) *"
+          placeholderTextColor={Colors.muted}
+          value={organization.gstNumber || ""}
+          onChangeText={(gstNumber) => setOrganization((state) => ({ ...state, gstNumber }))}
+          autoCapitalize="characters"
         />
 
         {/* Location Section */}
@@ -395,6 +414,7 @@ export default function AdminOrganizationsScreen() {
                   </View>
                 </View>
                 <Text style={styles.productSub}>{org.email ? org.email : "No email"} • {org.phone ? org.phone : "No phone"}</Text>
+                {org.gstNumber ? <Text style={[styles.productMeta, { color: Colors.primary, fontWeight: "700" }]}>GSTIN: {org.gstNumber}</Text> : null}
                 {org.address ? <Text style={styles.productMeta}>{org.address}</Text> : null}
                 
                 {/* Pricing Summary Badge */}

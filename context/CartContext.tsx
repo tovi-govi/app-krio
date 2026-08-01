@@ -51,6 +51,7 @@ export type Organization = {
   phone: string;
   email: string;
   address: string;
+  gstNumber?: string;
   location?: OrganizationLocation | null;
   pricing?: Record<string, number>;
   createdAt?: string;
@@ -96,6 +97,7 @@ export type Plant = {
   id: string;
   name: string;
   location: string;
+  inventory?: Record<string, number>;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -141,14 +143,24 @@ const SCHEDULES_KEY = "krio_delivery_schedules";
 const PLANTS_KEY = "krio_plants";
 
 export const DEFAULT_PRODUCTS: Product[] = [
-  { id: "200ml", size: "200 ml Bottle", use: "On-the-go sip", emoji: "🧴", price: 10, stock: 1050, isActive: true },
-  { id: "500ml", size: "500 ml Bottle", use: "Everyday carry", emoji: "🍶", price: 20, stock: 1200, isActive: true },
-  { id: "1l", size: "1 Litre Bottle", use: "Desk & travel", emoji: "🫙", price: 30, stock: 600, isActive: true },
-  { id: "20l", size: "20 L Can", use: "Home & office dispenser", emoji: "🪣", price: 90, stock: 200, isActive: true },
+  { id: "200ml", size: "200 ml Bottle", use: "On-the-go sip", emoji: "🧴", price: 10, stock: 0, isActive: true },
+  { id: "500ml", size: "500 ml Bottle", use: "Everyday carry", emoji: "🍶", price: 20, stock: 0, isActive: true },
+  { id: "1l", size: "1 Litre Bottle", use: "Desk & travel", emoji: "🫙", price: 30, stock: 0, isActive: true },
+  { id: "20l", size: "20 L Can", use: "Home & office dispenser", emoji: "🪣", price: 90, stock: 0, isActive: true },
 ];
 
 export const DEFAULT_PLANTS: Plant[] = [
-  { id: "plant-main", name: "Main Processing Plant", location: "Industrial Zone, Block A" },
+  {
+    id: "plant-main",
+    name: "Main Processing Plant",
+    location: "Industrial Zone, Block A",
+    inventory: {
+      "200ml": 0,
+      "500ml": 0,
+      "1l": 0,
+      "20l": 0,
+    },
+  },
 ];
 
 type CartContextValue = {
@@ -165,6 +177,7 @@ type CartContextValue = {
   deleteOrganization: (id: string) => Promise<void>;
   savePlant: (plant: Plant) => Promise<void>;
   deletePlant: (id: string) => Promise<void>;
+  updatePlantInventory: (plantId: string, inventory: Record<string, number>) => Promise<void>;
   addDeliveryRecord: (delivery: DeliveryRecord) => Promise<void>;
   addOrUpdateSchedule: (data: Partial<DeliverySchedule> & { organizationId: string; organizationName: string; scheduledDate: string }) => Promise<string>;
   rescheduleOrganization: (scheduleId: string, newDate: string, newOrder?: number) => Promise<void>;
@@ -301,6 +314,7 @@ function normalizeOrganization(id: string, data: any): Organization {
     phone: String(data.phone ?? ""),
     email: String(data.email ?? ""),
     address: String(data.address ?? ""),
+    gstNumber: String(data.gstNumber ?? data.gst ?? ""),
     location,
     pricing,
     createdAt: data.createdAt ?? new Date().toISOString(),
@@ -323,11 +337,61 @@ function normalizeAdminNotification(id: string, data: any): AdminNotification {
   };
 }
 
+export function getPlantProductStock(
+  plant: Plant | null | undefined,
+  productId: string,
+  defaultStock: number = 0
+): number {
+  if (!plant || !plant.inventory || typeof plant.inventory !== "object") {
+    return defaultStock;
+  }
+  const stockVal = plant.inventory[productId];
+  if (stockVal !== undefined && stockVal !== null) {
+    const num = Number(stockVal);
+    if (!isNaN(num) && num >= 0) return num;
+  }
+  return defaultStock;
+}
+
+export function getProductTotalStockAcrossPlants(
+  productId: string,
+  plants: Plant[],
+  defaultStock: number = 0
+): number {
+  if (!plants || plants.length === 0) return defaultStock;
+  let hasPlantStock = false;
+  let totalSum = 0;
+
+  for (const plant of plants) {
+    if (plant.inventory && typeof plant.inventory === "object" && plant.inventory[productId] !== undefined) {
+      hasPlantStock = true;
+      const val = Number(plant.inventory[productId]);
+      if (!isNaN(val) && val >= 0) {
+        totalSum += val;
+      }
+    }
+  }
+
+  return hasPlantStock ? totalSum : defaultStock;
+}
+
 function normalizePlant(id: string, data: any): Plant {
+  let inventory: Record<string, number> | undefined = undefined;
+  if (data.inventory && typeof data.inventory === "object") {
+    inventory = {};
+    for (const [k, v] of Object.entries(data.inventory)) {
+      const num = Number(v);
+      if (!isNaN(num) && num >= 0) {
+        inventory[k] = num;
+      }
+    }
+  }
+
   return {
     id,
     name: String(data.name ?? ""),
     location: String(data.location ?? ""),
+    inventory,
     createdAt: data.createdAt ?? new Date().toISOString(),
     updatedAt: data.updatedAt,
   };
@@ -698,6 +762,46 @@ export function CartProvider({ children }: { children: ReactNode }) {
         createdAt: delivery.createdAt || new Date().toISOString(),
       };
 
+      if (!cleanDelivery.plantId) {
+        throw new Error("Please select a plant facility for this delivery.");
+      }
+
+      const targetPlant = plants.find((p) => p.id === cleanDelivery.plantId);
+      if (!targetPlant) {
+        throw new Error("Selected plant facility could not be found.");
+      }
+
+      // Required stock deductions per product
+      const deductions: { [prodId: string]: { size: string; count: number } } = {
+        "20l": { size: "20L Can", count: cleanDelivery.fullCansLoaded },
+        "200ml": { size: "200ml Pack", count: (cleanDelivery.cases200mlDelivered || 0) * 35 },
+        "500ml": { size: "500ml Case", count: (cleanDelivery.cases500mlDelivered || 0) * 24 },
+        "1l": { size: "1L Case", count: (cleanDelivery.cases1lDelivered || 0) * 12 },
+      };
+
+      // Validate stock availability at selected plant
+      for (const [prodId, info] of Object.entries(deductions)) {
+        if (info.count > 0) {
+          const prodObj = products.find((p) => p.id === prodId);
+          const currentStock = getPlantProductStock(targetPlant, prodId, prodObj?.stock ?? 0);
+          if (currentStock < info.count) {
+            throw new Error(
+              `Insufficient stock at ${targetPlant.name} for ${info.size}. Available: ${currentStock}, Required: ${info.count}`
+            );
+          }
+        }
+      }
+
+      // Compute updated inventory map for selected plant
+      const updatedPlantInventory: Record<string, number> = { ...(targetPlant.inventory || {}) };
+      for (const [prodId, info] of Object.entries(deductions)) {
+        if (info.count > 0) {
+          const prodObj = products.find((p) => p.id === prodId);
+          const currentStock = getPlantProductStock(targetPlant, prodId, prodObj?.stock ?? 0);
+          updatedPlantInventory[prodId] = Math.max(0, currentStock - info.count);
+        }
+      }
+
       if (firebaseReady && db) {
         const cleanedDeliveryPayload = cleanFirestoreData(cleanDelivery);
         await setDoc(
@@ -709,8 +813,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
           { merge: true }
         );
 
+        // Update Plant inventory in Cloud Firestore
+        await setDoc(
+          doc(db, "plants", targetPlant.id),
+          {
+            inventory: updatedPlantInventory,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+
         const notificationRef = doc(db, "adminNotifications", `delivery-${delivery.id}`);
-        const notificationMsg = `${delivery.deliveredBy} recorded delivery for ${delivery.organizationName || "Organization"}.`;
+        const notificationMsg = `${delivery.deliveredBy} recorded delivery for ${delivery.organizationName || "Organization"} from ${targetPlant.name}.`;
         const cleanedNotificationPayload = cleanFirestoreData({
           orderId: delivery.id,
           title: "New Delivery Recorded",
@@ -733,44 +847,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
         );
       } else {
         setDeliveries((current) => [cleanDelivery, ...current]);
-      }
-
-      // Automatically update Inventory Stock in memory and Cloud Firestore with zero floor protection
-      const stockDeductions: { [productId: string]: number } = {
-        "20l": cleanDelivery.fullCansLoaded,
-        "200ml": (cleanDelivery.cases200mlDelivered || 0) * 35, // 1 pack = 35 bottles
-        "500ml": (cleanDelivery.cases500mlDelivered || 0) * 24, // 1 case = 24 bottles
-        "1l": (cleanDelivery.cases1lDelivered || 0) * 12,       // 1 case = 12 bottles
-      };
-
-      if (firebaseReady && db) {
-        const firestoreDb = db;
-        for (const [prodId, deduct] of Object.entries(stockDeductions)) {
-          if (deduct > 0) {
-            try {
-              await runTransaction(firestoreDb, async (transaction) => {
-                const prodRef = doc(firestoreDb, "products", prodId);
-                const prodDoc = await transaction.get(prodRef);
-                if (prodDoc.exists()) {
-                  const currentStock = Number(prodDoc.data().stock ?? 0);
-                  const nextStock = Math.max(0, currentStock - deduct);
-                  transaction.update(prodRef, {
-                    stock: nextStock,
-                    updatedAt: serverTimestamp(),
-                  });
-                }
-              });
-            } catch (e) {
-              console.warn(`[CartContext] Stock transaction error for product ${prodId}:`, e);
-            }
-          }
-        }
-      } else {
-        setProducts((prevProducts) =>
-          prevProducts.map((prod) => {
-            const deduct = stockDeductions[prod.id] || 0;
-            return deduct > 0 ? { ...prod, stock: Math.max(0, prod.stock - deduct) } : prod;
-          })
+        setPlants((current) =>
+          current.map((p) => (p.id === targetPlant.id ? { ...p, inventory: updatedPlantInventory } : p))
         );
       }
     },
@@ -781,10 +859,17 @@ export function CartProvider({ children }: { children: ReactNode }) {
         phone: organization.phone.trim(),
         email: organization.email.trim(),
         address: organization.address.trim(),
+        gstNumber: (organization.gstNumber || "").trim(),
       };
 
-      if (!cleanOrganization.name || !cleanOrganization.phone || !cleanOrganization.email || !cleanOrganization.address) {
-        throw new Error("All fields (Organization Name, Phone, Email, and Address) are required.");
+      if (
+        !cleanOrganization.name ||
+        !cleanOrganization.phone ||
+        !cleanOrganization.email ||
+        !cleanOrganization.address ||
+        !cleanOrganization.gstNumber
+      ) {
+        throw new Error("All fields (Organization Name, Phone, Email, Address, and GST Number) are required.");
       }
 
       if (firebaseReady && db) {
@@ -829,6 +914,31 @@ export function CartProvider({ children }: { children: ReactNode }) {
           if (exists) return current.map((p) => (p.id === cleanPlant.id ? cleanPlant : p));
           return [cleanPlant, ...current];
         });
+      }
+    },
+    updatePlantInventory: async (plantId, newInventory) => {
+      const targetPlant = plants.find((p) => p.id === plantId);
+      if (!targetPlant) throw new Error("Plant facility not found.");
+
+      const sanitizedInventory: Record<string, number> = {};
+      for (const [k, v] of Object.entries(newInventory)) {
+        const num = Math.max(0, Number(v) || 0);
+        sanitizedInventory[k] = num;
+      }
+
+      if (firebaseReady && db) {
+        await setDoc(
+          doc(db, "plants", plantId),
+          {
+            inventory: sanitizedInventory,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else {
+        setPlants((current) =>
+          current.map((p) => (p.id === plantId ? { ...p, inventory: sanitizedInventory } : p))
+        );
       }
     },
     deletePlant: async (id) => {

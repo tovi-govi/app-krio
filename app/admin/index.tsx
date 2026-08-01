@@ -19,6 +19,7 @@ export default function AdminHomeScreen() {
   const [showInvoiceMenu, setShowInvoiceMenu] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [deliverySearchText, setDeliverySearchText] = useState("");
+  const [visibleDeliveryCount, setVisibleDeliveryCount] = useState(25);
 
   const invoiceMonthKeys = useMemo(() => {
     const orderKeys = orders.map((order) => {
@@ -77,6 +78,10 @@ export default function AdminHomeScreen() {
         (d.plantLocation && d.plantLocation.toLowerCase().includes(query))
     );
   }, [deliveries, deliverySearchText]);
+
+  const visibleDeliveries = useMemo(() => {
+    return filteredDeliveries.slice(0, visibleDeliveryCount);
+  }, [filteredDeliveries, visibleDeliveryCount]);
 
   const selectedMonthData = useMemo(() => {
     if (!selectedInvoiceMonth) return null;
@@ -165,6 +170,7 @@ export default function AdminHomeScreen() {
               {/* Table Column Headers */}
               <View style={styles.excelHeaderRow}>
                 <Text style={[styles.excelHeaderCell, styles.colOrg]}>Partner Organization</Text>
+                <Text style={[styles.excelHeaderCell, styles.colGst]}>GST Number</Text>
                 <Text style={[styles.excelHeaderCell, styles.colCans]}>20L Cans</Text>
                 <Text style={[styles.excelHeaderCell, styles.colEmpty]}>Empty 20L</Text>
                 <Text style={[styles.excelHeaderCell, styles.col200ml]}>200ml Packs</Text>
@@ -183,6 +189,10 @@ export default function AdminHomeScreen() {
                   <View key={row.organizationName} style={[styles.excelDataRow, idx % 2 === 0 && styles.excelZebraRow]}>
                     <Text style={[styles.excelCellText, styles.colOrg, styles.excelOrgText]} numberOfLines={1}>
                       {row.organizationName}
+                    </Text>
+
+                    <Text style={[styles.excelCellText, styles.colGst, { fontSize: 12, color: Colors.muted }]} numberOfLines={1}>
+                      {row.gstNumber || "N/A"}
                     </Text>
 
                     <View style={[styles.colCans, styles.cellCenter]}>
@@ -225,6 +235,7 @@ export default function AdminHomeScreen() {
               {/* Totals Row */}
               <View style={styles.excelTotalRow}>
                 <Text style={[styles.excelTotalText, styles.colOrg]}>TOTAL SUMMARY</Text>
+                <Text style={[styles.excelTotalText, styles.colGst]}>—</Text>
                 <Text style={[styles.excelTotalText, styles.colCans, styles.cellTextCenter]}>
                   {selectedMonthData ? `${selectedMonthData.totalCansDelivered} cans` : "0"}
                 </Text>
@@ -266,7 +277,7 @@ export default function AdminHomeScreen() {
           style={{ marginBottom: 4 }}
         />
 
-        {filteredDeliveries.length === 0 ? (
+        {visibleDeliveries.length === 0 ? (
           <View style={styles.emptyCard}>
             <Truck size={32} color={Colors.muted} />
             <Text style={styles.emptyTitle}>
@@ -277,37 +288,50 @@ export default function AdminHomeScreen() {
             </Text>
           </View>
         ) : (
-          filteredDeliveries.map((delivery) => (
-            <View key={delivery.id} style={styles.deliveryCard}>
-              <View style={styles.deliveryCardHeader}>
-                <View style={styles.deliveryIconBox}>
-                  <Truck size={20} color={Colors.white} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.deliveryOrgName}>{delivery.organizationName || "General Delivery"}</Text>
-                  <Text style={styles.deliveryMetaText}>
-                    By {delivery.deliveredBy || "Delivery Staff"} • {delivery.createdAt ? new Date(delivery.createdAt).toLocaleString() : ""}
-                  </Text>
-                  {delivery.plantName ? (
-                    <Text style={{ fontSize: 12, color: Colors.primary, fontWeight: "800", marginTop: 3 }}>
-                      Shipped from: {delivery.plantName}{delivery.plantLocation ? ` (${delivery.plantLocation})` : ""}
+          <>
+            {visibleDeliveries.map((delivery) => (
+              <View key={delivery.id} style={styles.deliveryCard}>
+                <View style={styles.deliveryCardHeader}>
+                  <View style={styles.deliveryIconBox}>
+                    <Truck size={20} color={Colors.white} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.deliveryOrgName}>{delivery.organizationName || "General Delivery"}</Text>
+                    <Text style={styles.deliveryMetaText}>
+                      By {delivery.deliveredBy || "Delivery Staff"} • {delivery.createdAt ? new Date(delivery.createdAt).toLocaleString() : ""}
                     </Text>
-                  ) : null}
+                    {delivery.plantName ? (
+                      <Text style={{ fontSize: 12, color: Colors.primary, fontWeight: "800", marginTop: 3 }}>
+                        Shipped from: {delivery.plantName}{delivery.plantLocation ? ` (${delivery.plantLocation})` : ""}
+                      </Text>
+                    ) : null}
+                  </View>
                 </View>
-              </View>
 
-              <View style={styles.deliveryStatsRow}>
-                <View style={styles.deliveryStatBadge}>
-                  <Text style={styles.deliveryStatLabel}>Full Cans Loaded</Text>
-                  <Text style={styles.deliveryStatValue}>{delivery.fullCansLoaded} cans</Text>
-                </View>
-                <View style={styles.deliveryStatBadge}>
-                  <Text style={styles.deliveryStatLabel}>Empty Returned</Text>
-                  <Text style={styles.deliveryStatValue}>{delivery.emptyCansReturned} cans</Text>
+                <View style={styles.deliveryStatsRow}>
+                  <View style={styles.deliveryStatBadge}>
+                    <Text style={styles.deliveryStatLabel}>Full Cans Loaded</Text>
+                    <Text style={styles.deliveryStatValue}>{delivery.fullCansLoaded} cans</Text>
+                  </View>
+                  <View style={styles.deliveryStatBadge}>
+                    <Text style={styles.deliveryStatLabel}>Empty Returned</Text>
+                    <Text style={styles.deliveryStatValue}>{delivery.emptyCansReturned} cans</Text>
+                  </View>
                 </View>
               </View>
-            </View>
-          ))
+            ))}
+
+            {visibleDeliveryCount < filteredDeliveries.length && (
+              <TouchableOpacity
+                style={styles.loadMoreBtn}
+                onPress={() => setVisibleDeliveryCount((prev) => prev + 50)}
+              >
+                <Text style={styles.loadMoreText}>
+                  Load More Records (Showing {visibleDeliveries.length} of {filteredDeliveries.length})
+                </Text>
+              </TouchableOpacity>
+            )}
+          </>
         )}
 
         <View style={{ height: 32 }} />
@@ -369,6 +393,7 @@ const styles = StyleSheet.create({
   excelCellText: { fontSize: 13, color: Colors.foreground, paddingHorizontal: 4 },
   excelOrgText: { fontWeight: "700" },
   colOrg: { width: 190 },
+  colGst: { width: 140 },
   colCans: { width: 100 },
   colEmpty: { width: 100 },
   col200ml: { width: 110 },
@@ -399,4 +424,6 @@ const styles = StyleSheet.create({
   deliveryStatBadge: { flex: 1, backgroundColor: Colors.mutedBg, borderRadius: Radius.md, padding: 12, borderWidth: 1, borderColor: Colors.border },
   deliveryStatLabel: { fontSize: 11, color: Colors.muted, fontWeight: "700" },
   deliveryStatValue: { fontSize: 15, fontWeight: "900", color: Colors.primary, marginTop: 2 },
+  loadMoreBtn: { backgroundColor: Colors.card, borderRadius: Radius.full, paddingVertical: 14, paddingHorizontal: 20, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: Colors.border, marginTop: 8, ...Shadow.soft },
+  loadMoreText: { fontSize: 13, fontWeight: "900", color: Colors.primary },
 });

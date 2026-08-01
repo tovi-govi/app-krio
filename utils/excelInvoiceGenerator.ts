@@ -4,11 +4,14 @@ import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import * as MailComposer from "expo-mail-composer";
 import { InvoiceAggregationResult } from "./invoiceAggregator";
+import { Plant, Product, getPlantProductStock, getProductTotalStockAcrossPlants } from "@/context/CartContext";
 
 export type DownloadInvoiceOptions = {
   result: InvoiceAggregationResult;
   organizationNameFilter?: string;
   recipientEmail?: string;
+  plants?: Plant[];
+  products?: Product[];
 };
 
 /**
@@ -33,7 +36,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
  * Generates an ExcelJS workbook buffer and writes it to cache storage, returning the file URI.
  */
 async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Promise<{ buffer: ArrayBuffer; fileUri: string; fileName: string }> {
-  const { result, organizationNameFilter } = options;
+  const { result, organizationNameFilter, plants = [], products = [] } = options;
   const { monthName, year, rows, totalCansDelivered, totalEmptyCansPickedUp, totalAmount, hasData } = result;
 
   if (!hasData || !rows || rows.length === 0) {
@@ -49,6 +52,7 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
   workbook.lastModifiedBy = "Krio-H2O Admin System";
   workbook.created = new Date();
 
+  // WORKSHEET 1: Monthly Invoice
   const worksheet = workbook.addWorksheet("Monthly Invoice", {
     views: [{ state: "frozen", ySplit: 4 }],
   });
@@ -60,7 +64,7 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
   const BORDER_GRAY = "D3D3D3";
 
   // Title Block
-  worksheet.mergeCells("A1:G2");
+  worksheet.mergeCells("A1:H2");
   const titleCell = worksheet.getCell("A1");
   const orgSubtitle = organizationNameFilter && organizationNameFilter !== "ALL"
     ? `\nOrganization: ${organizationNameFilter}`
@@ -78,6 +82,7 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
   headerRow.height = 28;
   headerRow.values = [
     "Organization Name",
+    "GST Number",
     "20L Cans",
     "Empty 20L",
     "200ml Packs",
@@ -94,8 +99,8 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
       bottom: { style: "medium", color: { argb: DARK_BLUE_HEX } },
       right: { style: "thin", color: { argb: BORDER_GRAY } },
     };
-    if (colNumber === 1) cell.alignment = { vertical: "middle", horizontal: "left" };
-    else if (colNumber >= 2 && colNumber <= 6) cell.alignment = { vertical: "middle", horizontal: "right" };
+    if (colNumber <= 2) cell.alignment = { vertical: "middle", horizontal: "left" };
+    else if (colNumber >= 3 && colNumber <= 7) cell.alignment = { vertical: "middle", horizontal: "right" };
     else cell.alignment = { vertical: "middle", horizontal: "center" };
   });
 
@@ -107,6 +112,7 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
     dataRow.height = 22;
     dataRow.values = [
       row.organizationName || "Unknown Organization",
+      row.gstNumber || "N/A",
       row.cansDelivered || 0,
       row.emptyCansPickedUp || 0,
       row.cases200ml || 0,
@@ -127,10 +133,10 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
         bottom: { style: "thin", color: { argb: BORDER_GRAY } },
         right: { style: "thin", color: { argb: BORDER_GRAY } },
       };
-      if (colNumber === 1) cell.alignment = { vertical: "middle", horizontal: "left" };
-      else if (colNumber >= 2 && colNumber <= 7) {
+      if (colNumber <= 2) cell.alignment = { vertical: "middle", horizontal: "left" };
+      else if (colNumber >= 3 && colNumber <= 8) {
         cell.alignment = { vertical: "middle", horizontal: "right" };
-        cell.numFmt = colNumber === 7 ? "₹#,##0" : "#,##0";
+        cell.numFmt = colNumber === 8 ? "₹#,##0" : "#,##0";
       } else cell.alignment = { vertical: "middle", horizontal: "center" };
     });
 
@@ -142,6 +148,7 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
   totalsRow.height = 26;
   totalsRow.values = [
     "TOTAL",
+    "",
     totalCansDelivered,
     totalEmptyCansPickedUp,
     result.totalCases200ml || 0,
@@ -158,10 +165,10 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
       bottom: { style: "double", color: { argb: DARK_BLUE_HEX } },
       right: { style: "thin", color: { argb: BORDER_GRAY } },
     };
-    if (colNumber === 1) cell.alignment = { vertical: "middle", horizontal: "left" };
-    else if (colNumber >= 2 && colNumber <= 7) {
+    if (colNumber <= 2) cell.alignment = { vertical: "middle", horizontal: "left" };
+    else if (colNumber >= 3 && colNumber <= 8) {
       cell.alignment = { vertical: "middle", horizontal: "right" };
-      cell.numFmt = colNumber === 7 ? "₹#,##0" : "#,##0";
+      cell.numFmt = colNumber === 8 ? "₹#,##0" : "#,##0";
     } else cell.alignment = { vertical: "middle", horizontal: "center" };
   });
 
@@ -178,6 +185,64 @@ async function generateAndSaveExcelBuffer(options: DownloadInvoiceOptions): Prom
     else if (colIndex >= 3 && colIndex <= 5) column.width = Math.max(maxLength + 4, 16);
     else column.width = Math.max(maxLength + 4, 15);
   });
+
+  // WORKSHEET 2: Plant Inventory Summary (If plants & products available)
+  if (plants.length > 0 && products.length > 0) {
+    const invSheet = workbook.addWorksheet("Plant Inventory Summary", {
+      views: [{ state: "frozen", ySplit: 3 }],
+    });
+
+    invSheet.mergeCells("A1:E1");
+    const invTitleCell = invSheet.getCell("A1");
+    invTitleCell.value = `BOTTLING PLANT INVENTORY REPORT`;
+    invTitleCell.font = { name: "Calibri", size: 13, bold: true, color: { argb: WHITE_HEX } };
+    invTitleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: DARK_BLUE_HEX } };
+    invTitleCell.alignment = { vertical: "middle", horizontal: "center" };
+
+    const invHeaderRow = invSheet.getRow(3);
+    invHeaderRow.height = 24;
+    invHeaderRow.values = ["Plant Name", "Location", "Product Size", "Stock at Plant", "Combined All Plants"];
+    invHeaderRow.eachCell((cell) => {
+      cell.font = { name: "Calibri", size: 11, bold: true, color: { argb: WHITE_HEX } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: DARK_BLUE_HEX } };
+      cell.border = {
+        top: { style: "thin", color: { argb: BORDER_GRAY } },
+        left: { style: "thin", color: { argb: BORDER_GRAY } },
+        bottom: { style: "medium", color: { argb: DARK_BLUE_HEX } },
+        right: { style: "thin", color: { argb: BORDER_GRAY } },
+      };
+      cell.alignment = { vertical: "middle", horizontal: "left" };
+    });
+
+    let invRowIdx = 4;
+    plants.forEach((plant) => {
+      products.forEach((prod) => {
+        const plantStock = getPlantProductStock(plant, prod.id, prod.stock);
+        const combinedStock = getProductTotalStockAcrossPlants(prod.id, plants, prod.stock);
+
+        const r = invSheet.getRow(invRowIdx);
+        r.values = [plant.name, plant.location, prod.size, plantStock, combinedStock];
+        r.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+          cell.font = { name: "Calibri", size: 10 };
+          cell.border = {
+            top: { style: "thin", color: { argb: BORDER_GRAY } },
+            left: { style: "thin", color: { argb: BORDER_GRAY } },
+            bottom: { style: "thin", color: { argb: BORDER_GRAY } },
+            right: { style: "thin", color: { argb: BORDER_GRAY } },
+          };
+          if (colNumber >= 4) {
+            cell.alignment = { vertical: "middle", horizontal: "right" };
+            cell.numFmt = "#,##0";
+          }
+        });
+        invRowIdx++;
+      });
+    });
+
+    invSheet.columns.forEach((column) => {
+      column.width = 22;
+    });
+  }
 
   const rawBuffer = await workbook.xlsx.writeBuffer();
   const buffer = rawBuffer as ArrayBuffer;

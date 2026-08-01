@@ -33,12 +33,6 @@
       "bundleIdentifier": "com.krioh2o.app"
     },
     "extra": {
-      "firebaseApiKey": "AIzaSyBqjUXpUHeSRTCjlJk4fM4SJZkYXXfTols",
-      "firebaseAuthDomain": "krio-82c35.firebaseapp.com",
-      "firebaseProjectId": "krio-82c35",
-      "firebaseStorageBucket": "krio-82c35.firebasestorage.app",
-      "firebaseMessagingSenderId": "884297647614",
-      "firebaseAppId": "1:884297647614:web:92bdf9841b1b1076406caf",
       "router": {},
       "eas": {
         "projectId": "c194c68d-8f27-47d4-ace2-5b8abc94cf04"

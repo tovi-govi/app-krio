@@ -3,6 +3,7 @@ import { DeliveryRecord, Organization, Product, getOrganizationProductPrice } fr
 export type OrganizationInvoiceRow = {
   organizationId?: string;
   organizationName: string;
+  gstNumber?: string;
   cansDelivered: number;
   emptyCansPickedUp: number;
   cases200ml: number;
@@ -161,6 +162,7 @@ export function aggregateMonthlyDeliveries(
     const org = findOrgForDelivery(delivery);
 
     if (existing) {
+      if (!existing.gstNumber && org?.gstNumber) existing.gstNumber = org.gstNumber;
       existing.cansDelivered += fullCans;
       existing.emptyCansPickedUp += emptyCans;
       existing.cases200ml += c200;
@@ -178,6 +180,7 @@ export function aggregateMonthlyDeliveries(
       orgMap.set(orgName, {
         organizationId: delivery.organizationId,
         organizationName: orgName,
+        gstNumber: org?.gstNumber || "N/A",
         cansDelivered: fullCans,
         emptyCansPickedUp: emptyCans,
         cases200ml: c200,

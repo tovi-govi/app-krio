@@ -1,85 +1,43 @@
-import { useState } from "react";
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { Package, Eye, EyeOff, Edit2, Check } from "lucide-react-native";
+import { useMemo, useState } from "react";
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Package, Eye, EyeOff, Factory, Layers } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Colors, Radius, Shadow } from "@/constants/theme";
-import { Product, useCart } from "@/context/CartContext";
+import { Product, useCart, getProductTotalStockAcrossPlants, getPlantProductStock } from "@/context/CartContext";
 import Toast, { ToastMessage } from "@/components/UI/Toast";
 
 export default function AdminInventoryScreen() {
-  const { products, saveProduct } = useCart();
-  const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [editPrice, setEditPrice] = useState<string>("");
-  const [editStock, setEditStock] = useState<string>("");
-
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { products, plants, saveProduct } = useCart();
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
-  const startEditing = (p: Product) => {
-    setEditingProductId(p.id);
-    setEditPrice(String(p.price));
-    setEditStock(String(p.stock));
-  };
+  // Compute overall inventory metrics across all plants (quantities only)
+  const inventorySummary = useMemo(() => {
+    let totalStockAllPlants = 0;
 
-  const cancelEditing = () => {
-    setEditingProductId(null);
-    setEditPrice("");
-    setEditStock("");
-  };
+    const productSummaries = products.map((prod) => {
+      const combinedStock = getProductTotalStockAcrossPlants(prod.id, plants, prod.stock);
+      totalStockAllPlants += combinedStock;
 
-  const handleSaveProductEdit = async (p: Product) => {
-    if (isSubmitting) return;
+      const plantBreakdown = plants.map((plant) => ({
+        plantId: plant.id,
+        plantName: plant.name,
+        stock: getPlantProductStock(plant, prod.id, prod.stock),
+      }));
 
-    const newPrice = Number(editPrice);
-    const newStock = Number(editStock);
+      return {
+        ...prod,
+        combinedStock,
+        plantBreakdown,
+      };
+    });
 
-    if (isNaN(newPrice) || newPrice < 0) {
-      setToast({
-        id: Date.now().toString(),
-        type: "warning",
-        title: "Invalid Price",
-        message: "Please enter a valid price.",
-      });
-      return;
-    }
-
-    if (isNaN(newStock) || newStock < 0) {
-      setToast({
-        id: Date.now().toString(),
-        type: "warning",
-        title: "Invalid Stock",
-        message: "Please enter a valid stock quantity.",
-      });
-      return;
-    }
-
-    setIsSubmitting(true);
-
-    try {
-      await saveProduct({
-        ...p,
-        price: newPrice,
-        stock: newStock,
-      });
-
-      setToast({
-        id: Date.now().toString(),
-        type: "success",
-        title: "Inventory Updated",
-        message: `${p.size} updated: ₹${newPrice} • Stock: ${newStock}`,
-      });
-      cancelEditing();
-    } catch (error: any) {
-      setToast({
-        id: Date.now().toString(),
-        type: "error",
-        title: "Update Failed",
-        message: error.message || "Could not update product.",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
+    return {
+      totalPlants: plants.length,
+      totalProducts: products.length,
+      totalStockAllPlants,
+      productSummaries,
+    };
+  }, [products, plants]);
 
   const handleToggleActive = async (p: Product) => {
     const nextActive = !p.isActive;
@@ -108,103 +66,104 @@ export default function AdminInventoryScreen() {
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <Toast toast={toast} onDismiss={() => setToast(null)} />
 
+      {/* Header Banner */}
       <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.header}>
         <View style={styles.headerTop}>
           <Package size={24} color={Colors.white} />
-          <Text style={styles.headerTitle}>Inventory Management</Text>
+          <Text style={styles.headerTitle}>Combined Inventory Dashboard</Text>
         </View>
-        <Text style={styles.headerSub}>Manage plant stock levels, update pricing, and control product availability in real-time.</Text>
+        <Text style={styles.headerSub}>
+          Real-time total stock aggregated across all bottling plant facilities. Quantities update automatically as deliveries are recorded.
+        </Text>
       </LinearGradient>
 
-      {products.length === 0 ? (
+      {/* Quick Summary Cards */}
+      <View style={styles.summaryGrid}>
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryIconBox}>
+            <Factory size={18} color={Colors.primary} />
+          </View>
+          <View>
+            <Text style={styles.summaryValue}>{inventorySummary.totalPlants}</Text>
+            <Text style={styles.summaryLabel}>Total Plants</Text>
+          </View>
+        </View>
+
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryIconBox}>
+            <Layers size={18} color={Colors.primary} />
+          </View>
+          <View>
+            <Text style={styles.summaryValue}>{inventorySummary.totalProducts}</Text>
+            <Text style={styles.summaryLabel}>Product Sizes</Text>
+          </View>
+        </View>
+
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryIconBox}>
+            <Package size={18} color={Colors.primary} />
+          </View>
+          <View>
+            <Text style={styles.summaryValue}>{inventorySummary.totalStockAllPlants}</Text>
+            <Text style={styles.summaryLabel}>Combined Total Stock</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Product Inventory List */}
+      <Text style={styles.sectionTitle}>Product Stock Across Facilities</Text>
+
+      {inventorySummary.productSummaries.length === 0 ? (
         <View style={styles.emptyCard}>
           <Package size={32} color={Colors.muted} />
           <Text style={styles.emptyTitle}>No inventory products found</Text>
           <Text style={styles.emptyText}>Default products will automatically seed on startup.</Text>
         </View>
       ) : (
-        products.map((product) => {
-          const isEditingThis = editingProductId === product.id;
-
-          return (
-            <View key={product.id} style={styles.productCard}>
-              <View style={styles.cardHeaderRow}>
-                <Text style={styles.emojiText}>{product.emoji}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.productTitle}>{product.size}</Text>
-                  <Text style={styles.productSub}>{product.use}</Text>
-                </View>
-                <TouchableOpacity
-                  style={[styles.statusBadge, product.isActive ? styles.badgeActive : styles.badgeHidden]}
-                  onPress={() => handleToggleActive(product)}
-                  accessibilityLabel="Toggle Visibility"
-                >
-                  {product.isActive ? <Eye size={12} color={Colors.primary} /> : <EyeOff size={12} color={Colors.muted} />}
-                  <Text style={[styles.statusBadgeText, product.isActive ? styles.badgeTextActive : styles.badgeTextHidden]}>
-                    {product.isActive ? "Live" : "Hidden"}
-                  </Text>
-                </TouchableOpacity>
+        inventorySummary.productSummaries.map((product) => (
+          <View key={product.id} style={styles.productCard}>
+            <View style={styles.cardHeaderRow}>
+              <Text style={styles.emojiText}>{product.emoji}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.productTitle}>{product.size}</Text>
+                <Text style={styles.productSub}>{product.use}</Text>
               </View>
 
-              {isEditingThis ? (
-                /* Inline Edit Form */
-                <View style={styles.editCard}>
-                  <Text style={styles.editSectionTitle}>Edit Pricing & Stock</Text>
-                  <View style={styles.editInputRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.fieldLabel}>Price (₹)</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={editPrice}
-                        onChangeText={setEditPrice}
-                        keyboardType="numeric"
-                        placeholder="Price"
-                      />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.fieldLabel}>Stock Quantity</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={editStock}
-                        onChangeText={setEditStock}
-                        keyboardType="numeric"
-                        placeholder="Stock"
-                      />
-                    </View>
-                  </View>
-                  <View style={styles.editActions}>
-                    <TouchableOpacity style={styles.cancelBtn} onPress={cancelEditing}>
-                      <Text style={styles.cancelText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.saveBtn} onPress={() => handleSaveProductEdit(product)}>
-                      <Check size={16} color={Colors.white} />
-                      <Text style={styles.saveText}>Save</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ) : (
-                /* Standard Display Row */
-                <View style={styles.cardDetailsRow}>
-                  <View style={styles.priceBox}>
-                    <Text style={styles.priceLabel}>Price</Text>
-                    <Text style={styles.priceValue}>₹{product.price}</Text>
-                  </View>
-
-                  <View style={styles.stockBox}>
-                    <Text style={styles.priceLabel}>Available Stock</Text>
-                    <Text style={styles.stockValueDisplay}>{product.stock} units</Text>
-                  </View>
-
-                  <View style={styles.actions}>
-                    <TouchableOpacity style={styles.editBtn} onPress={() => startEditing(product)} accessibilityLabel="Edit Product">
-                      <Edit2 size={16} color={Colors.primary} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
+              <TouchableOpacity
+                style={[styles.statusBadge, product.isActive ? styles.badgeActive : styles.badgeHidden]}
+                onPress={() => handleToggleActive(product)}
+                accessibilityLabel="Toggle Visibility"
+              >
+                {product.isActive ? <Eye size={12} color={Colors.primary} /> : <EyeOff size={12} color={Colors.muted} />}
+                <Text style={[styles.statusBadgeText, product.isActive ? styles.badgeTextActive : styles.badgeTextHidden]}>
+                  {product.isActive ? "Live" : "Hidden"}
+                </Text>
+              </TouchableOpacity>
             </View>
-          );
-        })
+
+            {/* Combined Stock Metric */}
+            <View style={styles.cardMetricsRow}>
+              <View style={styles.metricItem}>
+                <Text style={styles.metricLabel}>Total Combined Stock</Text>
+                <Text style={styles.stockValueDisplay}>{product.combinedStock} units</Text>
+              </View>
+            </View>
+
+            {/* Per-Plant Stock Breakdown */}
+            <View style={styles.plantBreakdownBox}>
+              <Text style={styles.plantBreakdownTitle}>Stock Breakdown By Bottling Plant</Text>
+              <View style={styles.plantChipsContainer}>
+                {product.plantBreakdown.map((pb) => (
+                  <View key={pb.plantId} style={styles.plantChip}>
+                    <Factory size={12} color={Colors.primary} />
+                    <Text style={styles.plantChipName}>{pb.plantName}:</Text>
+                    <Text style={styles.plantChipStock}>{pb.stock} units</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </View>
+        ))
       )}
     </ScrollView>
   );
@@ -217,36 +176,100 @@ const styles = StyleSheet.create({
   headerTop: { flexDirection: "row", alignItems: "center", gap: 12 },
   headerTitle: { color: Colors.white, fontSize: 24, fontWeight: "900" },
   headerSub: { color: Colors.white, fontSize: 13, lineHeight: 20, opacity: 0.9 },
-  productCard: { backgroundColor: Colors.card, borderRadius: Radius.xl, padding: 18, gap: 14, borderWidth: 1, borderColor: Colors.border, ...Shadow.soft },
+  summaryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, justifyContent: "space-between" },
+  summaryCard: {
+    flex: 1,
+    minWidth: 140,
+    backgroundColor: Colors.card,
+    borderRadius: Radius.lg,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadow.card,
+  },
+  summaryIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.primary + "12",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  summaryValue: { fontSize: 18, fontWeight: "900", color: Colors.primary },
+  summaryLabel: { fontSize: 11, color: Colors.muted, marginTop: 2, fontWeight: "600" },
+  sectionTitle: { fontSize: 18, fontWeight: "900", color: Colors.foreground, marginTop: 8 },
+  productCard: {
+    backgroundColor: Colors.card,
+    borderRadius: Radius.xl,
+    padding: 18,
+    gap: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadow.soft,
+  },
   cardHeaderRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   emojiText: { fontSize: 28 },
   productTitle: { fontSize: 16, fontWeight: "900", color: Colors.foreground },
   productSub: { fontSize: 13, color: Colors.muted, marginTop: 2 },
-  statusBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: Radius.full, borderWidth: 1 },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+  },
   badgeActive: { backgroundColor: Colors.primary + "10", borderColor: Colors.primary + "30" },
   badgeHidden: { backgroundColor: Colors.mutedBg, borderColor: Colors.border },
   statusBadgeText: { fontSize: 11, fontWeight: "800" },
   badgeTextActive: { color: Colors.primary },
   badgeTextHidden: { color: Colors.muted },
-  cardDetailsRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: Colors.border },
-  priceBox: { minWidth: 70 },
-  priceLabel: { fontSize: 11, color: Colors.muted, fontWeight: "700" },
-  priceValue: { fontSize: 16, fontWeight: "900", color: Colors.secondary, marginTop: 4 },
-  stockBox: { flex: 1, gap: 4 },
-  stockValueDisplay: { fontSize: 16, fontWeight: "900", color: Colors.foreground, marginTop: 4 },
-  actions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  editBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: Colors.primary + "12", alignItems: "center", justifyContent: "center" },
-  editCard: { backgroundColor: Colors.mutedBg, borderRadius: Radius.lg, padding: 14, gap: 12, marginTop: 4, borderWidth: 1, borderColor: Colors.border },
-  editSectionTitle: { fontSize: 13, fontWeight: "800", color: Colors.foreground },
-  editInputRow: { flexDirection: "row", gap: 12 },
-  fieldLabel: { fontSize: 11, fontWeight: "700", color: Colors.muted, marginBottom: 4 },
-  input: { backgroundColor: Colors.white, borderRadius: Radius.md, paddingHorizontal: 12, paddingVertical: 8, fontSize: 14, fontWeight: "800", color: Colors.foreground, borderWidth: 1, borderColor: Colors.border },
-  editActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8, marginTop: 4 },
-  cancelBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: Radius.full, backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border },
-  cancelText: { fontSize: 12, fontWeight: "800", color: Colors.muted },
-  saveBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 16, paddingVertical: 8, borderRadius: Radius.full, backgroundColor: Colors.primary },
-  saveText: { fontSize: 12, fontWeight: "900", color: Colors.white },
-  emptyCard: { backgroundColor: Colors.card, borderRadius: Radius.xl, padding: 24, borderWidth: 1, borderColor: Colors.border, ...Shadow.soft, alignItems: "center", gap: 8 },
+  cardMetricsRow: {
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+  },
+  metricItem: { flex: 1 },
+  metricLabel: { fontSize: 11, color: Colors.muted, fontWeight: "700" },
+  stockValueDisplay: { fontSize: 18, fontWeight: "900", color: Colors.primary, marginTop: 4 },
+  plantBreakdownBox: {
+    backgroundColor: Colors.mutedBg,
+    borderRadius: Radius.lg,
+    padding: 12,
+    gap: 8,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  plantBreakdownTitle: { fontSize: 12, fontWeight: "800", color: Colors.foreground },
+  plantChipsContainer: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  plantChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: Colors.white,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  plantChipName: { fontSize: 12, color: Colors.muted, fontWeight: "700" },
+  plantChipStock: { fontSize: 12, color: Colors.primary, fontWeight: "900" },
+  emptyCard: {
+    backgroundColor: Colors.card,
+    borderRadius: Radius.xl,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadow.soft,
+    alignItems: "center",
+    gap: 8,
+  },
   emptyTitle: { fontSize: 15, fontWeight: "800", color: Colors.foreground },
   emptyText: { color: Colors.muted, fontSize: 12 },
 });

@@ -43,6 +43,8 @@ export default function OrganizationOrdersScreen() {
     );
   }, [deliveries, id, organization?.name]);
 
+  const [visibleDeliveryCount, setVisibleDeliveryCount] = useState(25);
+
   const filteredDeliveries = useMemo(() => {
     if (!deliverySearchText.trim()) return organizationDeliveries;
     const query = deliverySearchText.toLowerCase();
@@ -52,6 +54,10 @@ export default function OrganizationOrdersScreen() {
         (d.createdAt && new Date(d.createdAt).toLocaleDateString().includes(query))
     );
   }, [organizationDeliveries, deliverySearchText]);
+
+  const visibleDeliveries = useMemo(() => {
+    return filteredDeliveries.slice(0, visibleDeliveryCount);
+  }, [filteredDeliveries, visibleDeliveryCount]);
 
   const orgStats = useMemo(() => {
     const fullFromDeliveries = organizationDeliveries.reduce((sum, d) => sum + d.fullCansLoaded, 0);
@@ -166,7 +172,7 @@ export default function OrganizationOrdersScreen() {
             style={{ marginBottom: 4 }}
           />
 
-          {filteredDeliveries.length === 0 ? (
+          {visibleDeliveries.length === 0 ? (
             <View style={styles.emptyCard}>
               <Truck size={34} color={Colors.primary} />
               <Text style={styles.emptyTitle}>
@@ -177,46 +183,71 @@ export default function OrganizationOrdersScreen() {
               </Text>
             </View>
           ) : (
-            filteredDeliveries.map((delivery) => {
-              const deliveryVal = calculateDeliveryRowAmount(
-                delivery.fullCansLoaded,
-                delivery.cases200mlDelivered || 0,
-                delivery.cases500mlDelivered || 0,
-                delivery.cases1lDelivered || 0,
-                organization,
-                products
-              );
+            <>
+              {visibleDeliveries.map((delivery) => {
+                const deliveryVal = calculateDeliveryRowAmount(
+                  delivery.fullCansLoaded,
+                  delivery.cases200mlDelivered || 0,
+                  delivery.cases500mlDelivered || 0,
+                  delivery.cases1lDelivered || 0,
+                  organization,
+                  products
+                );
 
-              return (
-                <View key={delivery.id} style={styles.orderCard}>
-                  <View style={styles.deliveryIconBox}>
-                    <Truck size={20} color={Colors.white} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.orderId}>Delivery Log</Text>
-                    <Text style={styles.orderText}>Full Cans Loaded: {delivery.fullCansLoaded} cans</Text>
-                    {delivery.cases200mlDelivered ? <Text style={styles.orderText}>200ml Packs Delivered: {delivery.cases200mlDelivered} packs</Text> : null}
-                    {delivery.cases500mlDelivered ? <Text style={styles.orderText}>500ml Cases Delivered: {delivery.cases500mlDelivered} cases</Text> : null}
-                    {delivery.cases1lDelivered ? <Text style={styles.orderText}>1L Cases Delivered: {delivery.cases1lDelivered} cases</Text> : null}
-                    <Text style={styles.orderText}>Empty Cans Picked Up: {delivery.emptyCansReturned} cans</Text>
-                    <Text style={styles.orderText}>Delivered by: {delivery.deliveredBy || "Staff"}</Text>
-                    {delivery.plantName ? (
-                      <Text style={[styles.orderText, { color: Colors.primary, fontWeight: "800", marginTop: 2 }]}>
-                        Plant: {delivery.plantName}{delivery.plantLocation ? ` (${delivery.plantLocation})` : ""}
+                return (
+                  <View key={delivery.id} style={styles.orderCard}>
+                    <View style={styles.deliveryIconBox}>
+                      <Truck size={20} color={Colors.white} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.orderId}>Delivery Log</Text>
+                      <Text style={styles.orderText}>Full Cans Loaded: {delivery.fullCansLoaded} cans</Text>
+                      {delivery.cases200mlDelivered ? <Text style={styles.orderText}>200ml Packs Delivered: {delivery.cases200mlDelivered} packs</Text> : null}
+                      {delivery.cases500mlDelivered ? <Text style={styles.orderText}>500ml Cases Delivered: {delivery.cases500mlDelivered} cases</Text> : null}
+                      {delivery.cases1lDelivered ? <Text style={styles.orderText}>1L Cases Delivered: {delivery.cases1lDelivered} cases</Text> : null}
+                      <Text style={styles.orderText}>Empty Cans Picked Up: {delivery.emptyCansReturned} cans</Text>
+                      <Text style={styles.orderText}>Delivered by: {delivery.deliveredBy || "Staff"}</Text>
+                      {delivery.plantName ? (
+                        <Text style={[styles.orderText, { color: Colors.primary, fontWeight: "800", marginTop: 2 }]}>
+                          Plant: {delivery.plantName}{delivery.plantLocation ? ` (${delivery.plantLocation})` : ""}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <View style={styles.orderMeta}>
+                      <Text style={{ fontSize: 13, fontWeight: "900", color: Colors.primary, marginBottom: 4 }}>
+                        ₹{deliveryVal}
                       </Text>
-                    ) : null}
+                      <Text style={styles.orderMetaText}>
+                        {delivery.createdAt ? new Date(delivery.createdAt).toLocaleDateString() : ""}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.orderMeta}>
-                    <Text style={{ fontSize: 13, fontWeight: "900", color: Colors.primary, marginBottom: 4 }}>
-                      ₹{deliveryVal}
-                    </Text>
-                    <Text style={styles.orderMetaText}>
-                      {delivery.createdAt ? new Date(delivery.createdAt).toLocaleDateString() : ""}
-                    </Text>
-                  </View>
-                </View>
-              );
-            })
+                );
+              })}
+
+              {visibleDeliveryCount < filteredDeliveries.length && (
+                <TouchableOpacity
+                  style={{
+                    backgroundColor: Colors.card,
+                    borderRadius: Radius.full,
+                    paddingVertical: 12,
+                    paddingHorizontal: 16,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderWidth: 1,
+                    borderColor: Colors.border,
+                    marginTop: 6,
+                    marginBottom: 12,
+                    ...Shadow.soft,
+                  }}
+                  onPress={() => setVisibleDeliveryCount((prev) => prev + 50)}
+                >
+                  <Text style={{ fontSize: 13, fontWeight: "900", color: Colors.primary }}>
+                    Load More (Showing {visibleDeliveries.length} of {filteredDeliveries.length})
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </>
           )}
 
           {/* CUSTOMER ORDERS SECTION */}

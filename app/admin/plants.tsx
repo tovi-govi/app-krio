@@ -1,10 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { Factory, MapPin, Edit2, Trash2 } from "lucide-react-native";
+import { Factory, MapPin, Edit2, Trash2, Plus, Minus, Save, RefreshCw, CheckCircle2 } from "lucide-react-native";
 import { Colors, Radius, Shadow } from "@/constants/theme";
-import { Plant, useCart } from "@/context/CartContext";
-import SearchInput from "@/components/UI/SearchInput";
+import { Plant, useCart, getPlantProductStock } from "@/context/CartContext";
 import ConfirmModal from "@/components/UI/ConfirmModal";
 import Toast, { ToastMessage } from "@/components/UI/Toast";
 
@@ -15,29 +14,97 @@ const emptyPlant = (): Plant => ({
 });
 
 export default function AdminPlantsScreen() {
-  const { plants, savePlant, deletePlant } = useCart();
-  const [plant, setPlant] = useState<Plant>(emptyPlant());
-  const [isEditing, setIsEditing] = useState(false);
-  const [searchText, setSearchText] = useState("");
+  const { plants, products, savePlant, deletePlant, updatePlantInventory } = useCart();
+  const [selectedPlantId, setSelectedPlantId] = useState<string>("");
+  const [plantForm, setPlantForm] = useState<Plant>(emptyPlant());
+  const [isEditingFacility, setIsEditingFacility] = useState(false);
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Local draft state for editing plant stock quantities
+  const [stockDraft, setStockDraft] = useState<Record<string, string>>({});
+  const [isSavingStock, setIsSavingStock] = useState(false);
+
+  const [isSubmittingFacility, setIsSubmittingFacility] = useState(false);
   const [deletingPlantId, setDeletingPlantId] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
-  const filteredPlants = useMemo(() => {
-    if (!searchText.trim()) return plants;
-    const query = searchText.toLowerCase();
-    return plants.filter(
-      (p) =>
-        p.name.toLowerCase().includes(query) ||
-        p.location.toLowerCase().includes(query)
-    );
-  }, [plants, searchText]);
+  // Set default selected plant if available
+  useEffect(() => {
+    if (plants.length > 0 && (!selectedPlantId || !plants.some((p) => p.id === selectedPlantId))) {
+      setSelectedPlantId(plants[0].id);
+    }
+  }, [plants]);
 
-  const handleSavePlant = async () => {
-    if (isSubmitting) return;
+  const activePlant = useMemo(() => {
+    return plants.find((p) => p.id === selectedPlantId) || plants[0] || null;
+  }, [plants, selectedPlantId]);
 
-    if (!plant.name.trim()) {
+  // Sync draft state whenever activePlant or products change
+  useEffect(() => {
+    if (activePlant) {
+      const draft: Record<string, string> = {};
+      products.forEach((prod) => {
+        const val = getPlantProductStock(activePlant, prod.id, prod.stock);
+        draft[prod.id] = String(val);
+      });
+      setStockDraft(draft);
+    }
+  }, [activePlant, products]);
+
+  const handleStockChange = (productId: string, val: string) => {
+    setStockDraft((prev) => ({ ...prev, [productId]: val }));
+  };
+
+  const handleAdjustStock = (productId: string, delta: number) => {
+    const currentVal = Number(stockDraft[productId] || "0");
+    const nextVal = Math.max(0, currentVal + delta);
+    setStockDraft((prev) => ({ ...prev, [productId]: String(nextVal) }));
+  };
+
+  const handleSavePlantStock = async () => {
+    if (!activePlant || isSavingStock) return;
+
+    const sanitizedInventory: Record<string, number> = {};
+    for (const prod of products) {
+      const inputStr = stockDraft[prod.id] ?? "0";
+      const num = Number(inputStr);
+      if (isNaN(num) || num < 0) {
+        setToast({
+          id: Date.now().toString(),
+          type: "warning",
+          title: "Invalid Stock Input",
+          message: `Please enter a valid non-negative number for ${prod.size}.`,
+        });
+        return;
+      }
+      sanitizedInventory[prod.id] = num;
+    }
+
+    setIsSavingStock(true);
+
+    try {
+      await updatePlantInventory(activePlant.id, sanitizedInventory);
+      setToast({
+        id: Date.now().toString(),
+        type: "success",
+        title: "Inventory Updated",
+        message: `Stock levels for ${activePlant.name} saved successfully.`,
+      });
+    } catch (error: any) {
+      setToast({
+        id: Date.now().toString(),
+        type: "error",
+        title: "Update Failed",
+        message: error.message || "Could not update plant inventory.",
+      });
+    } finally {
+      setIsSavingStock(false);
+    }
+  };
+
+  const handleSavePlantFacility = async () => {
+    if (isSubmittingFacility) return;
+
+    if (!plantForm.name.trim()) {
       setToast({
         id: Date.now().toString(),
         type: "warning",
@@ -47,7 +114,7 @@ export default function AdminPlantsScreen() {
       return;
     }
 
-    if (!plant.location.trim()) {
+    if (!plantForm.location.trim()) {
       setToast({
         id: Date.now().toString(),
         type: "warning",
@@ -57,47 +124,47 @@ export default function AdminPlantsScreen() {
       return;
     }
 
-    setIsSubmitting(true);
+    setIsSubmittingFacility(true);
 
     try {
       await savePlant({
-        ...plant,
-        name: plant.name.trim(),
-        location: plant.location.trim(),
+        ...plantForm,
+        name: plantForm.name.trim(),
+        location: plantForm.location.trim(),
       });
 
       setToast({
         id: Date.now().toString(),
         type: "success",
-        title: isEditing ? "Plant Updated" : "Plant Saved",
-        message: `${plant.name} record has been saved successfully.`,
+        title: isEditingFacility ? "Facility Updated" : "Facility Saved",
+        message: `${plantForm.name} record saved.`,
       });
 
-      setPlant(emptyPlant());
-      setIsEditing(false);
+      setPlantForm(emptyPlant());
+      setIsEditingFacility(false);
     } catch (error: any) {
       setToast({
         id: Date.now().toString(),
         type: "error",
         title: "Save Failed",
-        message: error.message || "Could not save plant record.",
+        message: error.message || "Could not save plant facility.",
       });
     } finally {
-      setIsSubmitting(false);
+      setIsSubmittingFacility(false);
     }
   };
 
-  const editPlant = (targetPlant: Plant) => {
-    setPlant(targetPlant);
-    setIsEditing(true);
+  const startEditFacility = (targetPlant: Plant) => {
+    setPlantForm(targetPlant);
+    setIsEditingFacility(true);
   };
 
-  const cancelEditing = () => {
-    setPlant(emptyPlant());
-    setIsEditing(false);
+  const cancelEditFacility = () => {
+    setPlantForm(emptyPlant());
+    setIsEditingFacility(false);
   };
 
-  const confirmDeletePlant = async () => {
+  const confirmDeleteFacility = async () => {
     if (!deletingPlantId) return;
     try {
       const plantToDelete = plants.find((p) => p.id === deletingPlantId);
@@ -106,7 +173,7 @@ export default function AdminPlantsScreen() {
         id: Date.now().toString(),
         type: "info",
         title: "Plant Removed",
-        message: `${plantToDelete?.name || "Plant"} has been deleted.`,
+        message: `${plantToDelete?.name || "Plant"} deleted.`,
       });
     } catch (error: any) {
       setToast({
@@ -124,101 +191,159 @@ export default function AdminPlantsScreen() {
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <Toast toast={toast} onDismiss={() => setToast(null)} />
 
+      {/* Header */}
       <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.header}>
         <View style={styles.headerTop}>
           <Factory size={24} color={Colors.white} />
-          <Text style={styles.headerTitle}>Plant Locations</Text>
+          <Text style={styles.headerTitle}>Plant Stock Management</Text>
         </View>
         <Text style={styles.headerSub}>
-          Manage water processing and bottling plant facilities used for dispatching orders.
+          Select a bottling plant to view and adjust its individual stock levels. Changes saved here immediately update the database.
         </Text>
       </LinearGradient>
 
-      {/* Form Card */}
-      <View style={styles.formCard}>
-        <Text style={styles.formTitle}>{isEditing ? "Edit Plant Location" : "Add New Plant Facility"}</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Plant Name *"
-          placeholderTextColor={Colors.muted}
-          value={plant.name}
-          onChangeText={(name) => setPlant((state) => ({ ...state, name }))}
-        />
-        <TextInput
-          style={[styles.input, styles.multilineInput]}
-          placeholder="Plant Location Address *"
-          placeholderTextColor={Colors.muted}
-          value={plant.location}
-          onChangeText={(location) => setPlant((state) => ({ ...state, location }))}
-          multiline
-        />
-        <View style={styles.formActionRow}>
-          {isEditing && (
-            <TouchableOpacity style={styles.cancelBtn} onPress={cancelEditing}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-          )}
+      {/* Plant Facility Selector Dropdown Bar */}
+      <View style={styles.selectorCard}>
+        <Text style={styles.selectorTitle}>Select Bottling Facility</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.plantSelectorRow}>
+          {plants.map((p) => {
+            const isSelected = p.id === activePlant?.id;
+            return (
+              <TouchableOpacity
+                key={p.id}
+                style={[styles.plantPill, isSelected && styles.plantPillSelected]}
+                onPress={() => setSelectedPlantId(p.id)}
+              >
+                <Factory size={14} color={isSelected ? Colors.white : Colors.primary} />
+                <Text style={[styles.plantPillText, isSelected && styles.plantPillTextSelected]}>{p.name}</Text>
+                {isSelected && <CheckCircle2 size={14} color={Colors.white} />}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* Selected Plant Inventory Stock Management Table */}
+      {activePlant ? (
+        <View style={styles.stockCard}>
+          <View style={styles.stockHeaderRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.stockPlantName}>{activePlant.name}</Text>
+              <Text style={styles.stockPlantLoc}>{activePlant.location}</Text>
+            </View>
+          </View>
+
+          <Text style={styles.tableTitle}>Plant Product Inventory Stock</Text>
+
+          {products.map((prod) => {
+            const draftVal = stockDraft[prod.id] ?? "0";
+
+            return (
+              <View key={prod.id} style={styles.stockRow}>
+                <Text style={styles.emojiText}>{prod.emoji}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.prodTitle}>{prod.size}</Text>
+                  <Text style={styles.prodSub}>{prod.use}</Text>
+                </View>
+
+                {/* Stock Controls (+ / - / Input) */}
+                <View style={styles.controlGroup}>
+                  <TouchableOpacity style={styles.stepBtn} onPress={() => handleAdjustStock(prod.id, -10)}>
+                    <Minus size={14} color={Colors.foreground} />
+                  </TouchableOpacity>
+
+                  <TextInput
+                    style={styles.stockInput}
+                    value={draftVal}
+                    onChangeText={(v) => handleStockChange(prod.id, v)}
+                    keyboardType="numeric"
+                    placeholder="0"
+                  />
+
+                  <TouchableOpacity style={styles.stepBtn} onPress={() => handleAdjustStock(prod.id, 10)}>
+                    <Plus size={14} color={Colors.foreground} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })}
+
           <TouchableOpacity
-            style={[styles.saveBtn, { flex: 1 }, isSubmitting && { opacity: 0.6 }]}
-            onPress={handleSavePlant}
-            disabled={isSubmitting}
+            style={[styles.saveStockBtn, isSavingStock && { opacity: 0.6 }]}
+            onPress={handleSavePlantStock}
+            disabled={isSavingStock}
           >
-            <Text style={styles.saveText}>
-              {isSubmitting ? "Saving..." : isEditing ? "Update Plant" : "Save Plant Facility"}
+            <Save size={18} color={Colors.white} />
+            <Text style={styles.saveStockText}>
+              {isSavingStock ? "Saving Plant Stock..." : `Save ${activePlant.name} Stock`}
             </Text>
           </TouchableOpacity>
         </View>
-      </View>
+      ) : null}
 
-      {/* Plants Directory List */}
-      <View style={styles.directoryHeaderRow}>
-        <Text style={styles.sectionTitle}>Plant Facilities ({filteredPlants.length})</Text>
-      </View>
+      {/* Facility Directory & Add/Edit Facility Section */}
+      <View style={styles.facilitySection}>
+        <Text style={styles.sectionTitle}>Plant Facility Settings & Directory</Text>
 
-      <SearchInput
-        value={searchText}
-        onChangeText={setSearchText}
-        placeholder="Filter by plant name or location..."
-        style={{ marginBottom: 4 }}
-      />
-
-      {filteredPlants.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Factory size={32} color={Colors.muted} />
-          <Text style={styles.emptyTitle}>
-            {searchText ? "No matching plants found" : "No plant locations added yet"}
-          </Text>
-          <Text style={styles.emptyText}>
-            {searchText ? "Try clearing your search term." : "Use the form above to add your first bottling plant facility."}
-          </Text>
+        <View style={styles.formCard}>
+          <Text style={styles.formTitle}>{isEditingFacility ? "Edit Plant Facility" : "Add New Bottling Plant Facility"}</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Plant Facility Name *"
+            placeholderTextColor={Colors.muted}
+            value={plantForm.name}
+            onChangeText={(name) => setPlantForm((state) => ({ ...state, name }))}
+          />
+          <TextInput
+            style={[styles.input, styles.multilineInput]}
+            placeholder="Plant Location Address *"
+            placeholderTextColor={Colors.muted}
+            value={plantForm.location}
+            onChangeText={(location) => setPlantForm((state) => ({ ...state, location }))}
+            multiline
+          />
+          <View style={styles.formActionRow}>
+            {isEditingFacility && (
+              <TouchableOpacity style={styles.cancelBtn} onPress={cancelEditFacility}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[styles.saveBtn, { flex: 1 }, isSubmittingFacility && { opacity: 0.6 }]}
+              onPress={handleSavePlantFacility}
+              disabled={isSubmittingFacility}
+            >
+              <Text style={styles.saveText}>
+                {isSubmittingFacility ? "Saving..." : isEditingFacility ? "Update Plant Record" : "Add Plant Facility"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      ) : (
-        filteredPlants.map((p) => (
-          <View key={p.id} style={styles.productCard}>
+
+        {plants.map((p) => (
+          <View key={p.id} style={styles.facilityCard}>
             <View style={styles.plantIconBox}>
-              <Factory size={22} color={Colors.white} />
+              <Factory size={20} color={Colors.white} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.productTitle}>{p.name}</Text>
+              <Text style={styles.facilityName}>{p.name}</Text>
               <View style={styles.locationRow}>
-                <MapPin size={14} color={Colors.muted} style={{ marginTop: 2 }} />
-                <Text style={styles.productSub}>{p.location}</Text>
+                <MapPin size={12} color={Colors.muted} style={{ marginTop: 2 }} />
+                <Text style={styles.facilityLoc}>{p.location}</Text>
               </View>
             </View>
-
-            <View style={styles.actions}>
-              <TouchableOpacity style={styles.editBtn} onPress={() => editPlant(p)} accessibilityLabel="Edit Plant">
+            <View style={styles.facilityActions}>
+              <TouchableOpacity style={styles.iconBtn} onPress={() => startEditFacility(p)}>
                 <Edit2 size={16} color={Colors.primary} />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.deleteBtn} onPress={() => setDeletingPlantId(p.id)} accessibilityLabel="Delete Plant">
+              <TouchableOpacity style={styles.iconBtnDanger} onPress={() => setDeletingPlantId(p.id)}>
                 <Trash2 size={16} color={Colors.error} />
               </TouchableOpacity>
             </View>
           </View>
-        ))
-      )}
+        ))}
+      </View>
 
-      {/* Delete Confirmation Dialog */}
       <ConfirmModal
         visible={!!deletingPlantId}
         title="Delete Plant Location?"
@@ -226,7 +351,7 @@ export default function AdminPlantsScreen() {
         confirmLabel="Delete"
         cancelLabel="Cancel"
         type="danger"
-        onConfirm={confirmDeletePlant}
+        onConfirm={confirmDeleteFacility}
         onCancel={() => setDeletingPlantId(null)}
       />
     </ScrollView>
@@ -240,26 +365,119 @@ const styles = StyleSheet.create({
   headerTop: { flexDirection: "row", alignItems: "center", gap: 12 },
   headerTitle: { color: Colors.white, fontSize: 24, fontWeight: "900" },
   headerSub: { color: Colors.white, fontSize: 13, lineHeight: 20, opacity: 0.9 },
-  formCard: { backgroundColor: Colors.card, borderRadius: Radius.xl, padding: 20, gap: 16, borderWidth: 1, borderColor: Colors.border, ...Shadow.soft },
-  formTitle: { fontSize: 16, fontWeight: "900", color: Colors.foreground, marginBottom: 4 },
-  input: { backgroundColor: Colors.mutedBg, borderRadius: Radius.md, paddingHorizontal: 16, paddingVertical: 14, minHeight: 48, fontSize: 14, color: Colors.foreground, borderWidth: 1, borderColor: Colors.border },
-  multilineInput: { minHeight: 75, textAlignVertical: "top" },
-  formActionRow: { flexDirection: "row", gap: 12, marginTop: 8 },
-  saveBtn: { backgroundColor: Colors.primary, borderRadius: Radius.full, minHeight: 44, paddingVertical: 12, paddingHorizontal: 20, alignItems: "center", justifyContent: "center", ...Shadow.card },
-  saveText: { color: Colors.white, fontWeight: "900", fontSize: 14 },
-  cancelBtn: { backgroundColor: Colors.mutedBg, borderRadius: Radius.full, minHeight: 44, paddingVertical: 12, paddingHorizontal: 20, alignItems: "center", justifyContent: "center" },
-  cancelText: { color: Colors.muted, fontWeight: "800", fontSize: 14 },
-  directoryHeaderRow: { marginTop: 8 },
+  selectorCard: {
+    backgroundColor: Colors.card,
+    borderRadius: Radius.xl,
+    padding: 16,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadow.soft,
+  },
+  selectorTitle: { fontSize: 14, fontWeight: "900", color: Colors.foreground },
+  plantSelectorRow: { flexDirection: "row", gap: 8, paddingVertical: 4 },
+  plantPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: Colors.mutedBg,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  plantPillSelected: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  plantPillText: { fontSize: 13, fontWeight: "800", color: Colors.foreground },
+  plantPillTextSelected: { color: Colors.white },
+  stockCard: {
+    backgroundColor: Colors.card,
+    borderRadius: Radius.xl,
+    padding: 18,
+    gap: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    ...Shadow.soft,
+  },
+  stockHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  stockPlantName: { fontSize: 18, fontWeight: "900", color: Colors.primary },
+  stockPlantLoc: { fontSize: 12, color: Colors.muted, marginTop: 2 },
+  refreshBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: Radius.md, backgroundColor: Colors.primary + "12" },
+  refreshBtnText: { fontSize: 12, fontWeight: "800", color: Colors.primary },
+  tableTitle: { fontSize: 14, fontWeight: "900", color: Colors.foreground },
+  stockRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border + "50",
+  },
+  emojiText: { fontSize: 24 },
+  prodTitle: { fontSize: 14, fontWeight: "900", color: Colors.foreground },
+  prodSub: { fontSize: 12, color: Colors.muted, marginTop: 2 },
+  controlGroup: { flexDirection: "row", alignItems: "center", gap: 6 },
+  stepBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.mutedBg,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  stockInput: {
+    width: 70,
+    height: 36,
+    backgroundColor: Colors.mutedBg,
+    borderRadius: Radius.md,
+    textAlign: "center",
+    fontSize: 14,
+    fontWeight: "900",
+    color: Colors.foreground,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  saveStockBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: Colors.primary,
+    borderRadius: Radius.full,
+    paddingVertical: 14,
+    marginTop: 8,
+    ...Shadow.card,
+  },
+  saveStockText: { fontSize: 14, fontWeight: "900", color: Colors.white },
+  facilitySection: { gap: 12, marginTop: 8 },
   sectionTitle: { fontSize: 16, fontWeight: "900", color: Colors.foreground },
-  emptyCard: { backgroundColor: Colors.card, borderRadius: Radius.xl, padding: 24, borderWidth: 1, borderColor: Colors.border, ...Shadow.soft, alignItems: "center", gap: 8 },
-  emptyTitle: { fontSize: 15, fontWeight: "800", color: Colors.foreground },
-  emptyText: { color: Colors.muted, fontSize: 12, textAlign: "center" },
-  productCard: { backgroundColor: Colors.card, borderRadius: Radius.xl, padding: 16, flexDirection: "row", alignItems: "center", gap: 16, borderWidth: 1, borderColor: Colors.border, ...Shadow.soft },
-  plantIconBox: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.primary, alignItems: "center", justifyContent: "center" },
-  productTitle: { fontSize: 16, fontWeight: "900", color: Colors.foreground },
-  locationRow: { flexDirection: "row", alignItems: "flex-start", gap: 4, marginTop: 4 },
-  productSub: { fontSize: 13, color: Colors.muted, flex: 1, lineHeight: 18 },
-  actions: { flexDirection: "row", alignItems: "center", gap: 8 },
-  editBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.mutedBg, alignItems: "center", justifyContent: "center" },
-  deleteBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.error + "15", alignItems: "center", justifyContent: "center" },
+  formCard: { backgroundColor: Colors.card, borderRadius: Radius.xl, padding: 18, gap: 12, borderWidth: 1, borderColor: Colors.border },
+  formTitle: { fontSize: 14, fontWeight: "900", color: Colors.foreground },
+  input: { backgroundColor: Colors.mutedBg, borderRadius: Radius.md, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: Colors.foreground, borderWidth: 1, borderColor: Colors.border },
+  multilineInput: { minHeight: 60, textAlignVertical: "top" },
+  formActionRow: { flexDirection: "row", gap: 10, marginTop: 4 },
+  saveBtn: { backgroundColor: Colors.primary, borderRadius: Radius.full, paddingVertical: 12, alignItems: "center", justifyContent: "center" },
+  saveText: { color: Colors.white, fontWeight: "900", fontSize: 13 },
+  cancelBtn: { backgroundColor: Colors.mutedBg, borderRadius: Radius.full, paddingHorizontal: 16, paddingVertical: 12, alignItems: "center", justifyContent: "center" },
+  cancelText: { color: Colors.muted, fontWeight: "800", fontSize: 13 },
+  facilityCard: { backgroundColor: Colors.card, borderRadius: Radius.lg, padding: 14, flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: Colors.border },
+  plantIconBox: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.primary, alignItems: "center", justifyContent: "center" },
+  facilityName: { fontSize: 14, fontWeight: "900", color: Colors.foreground },
+  locationRow: { flexDirection: "row", alignItems: "flex-start", gap: 4, marginTop: 2 },
+  facilityLoc: { fontSize: 12, color: Colors.muted, flex: 1 },
+  facilityActions: { flexDirection: "row", gap: 6 },
+  iconBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.mutedBg, alignItems: "center", justifyContent: "center" },
+  iconBtnDanger: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.error + "15", alignItems: "center", justifyContent: "center" },
 });

@@ -38,7 +38,7 @@ export default function DownloadInvoiceModal({
   deliveries,
 }: DownloadInvoiceModalProps) {
   const { user } = useAuth();
-  const { products } = useCart();
+  const { products, plants } = useCart();
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [selectedOrgId, setSelectedOrgId] = useState<string>("ALL");
@@ -84,6 +84,8 @@ export default function DownloadInvoiceModal({
         result,
         organizationNameFilter: orgFilterName,
         recipientEmail,
+        plants,
+        products,
       });
 
       setToast({
@@ -139,6 +141,8 @@ export default function DownloadInvoiceModal({
       await generateAndDownloadExcelInvoice({
         result,
         organizationNameFilter: orgFilterName,
+        plants,
+        products,
       });
 
       onClose();
