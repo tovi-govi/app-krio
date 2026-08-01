@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -14,7 +15,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { Lock, Shield } from "lucide-react-native";
-import KrioLogo from "@/assets/logos/krio-logo.svg";
 import { useAuth } from "@/context/AuthContext";
 import { Colors, Radius, Shadow } from "@/constants/theme";
 
@@ -25,21 +25,24 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
 
   const submitLogin = async () => {
-    if (!staffUser.trim() || !staffPass) {
-      Alert.alert("Missing login details", "Enter your email and password to continue.");
+    if (!staffUser.trim() || !staffPass.trim()) {
+      Alert.alert("Missing Details", "Please enter your staff email and password.");
       return;
     }
-
+    setLoading(true);
     try {
-      setLoading(true);
-      const role = await loginAdmin(staffUser, staffPass);
-      if (!role) {
-        Alert.alert("Access not enabled", "This account is not approved for staff access.");
-        return;
+      const role = await loginAdmin(staffUser.trim(), staffPass.trim());
+      if (role) {
+        if (role === "admin") {
+          router.replace("/admin");
+        } else {
+          router.replace("/delivery");
+        }
+      } else {
+        Alert.alert("Login Failed", "Invalid staff credentials or unauthorized account.");
       }
-      router.replace(role === "delivery" ? "/delivery" : "/admin");
-    } catch (error: any) {
-      Alert.alert("Login failed", error.message || "Could not sign in right now.");
+    } catch (err: any) {
+      Alert.alert("Login Error", err.message || "An unexpected error occurred during login.");
     } finally {
       setLoading(false);
     }
@@ -52,7 +55,11 @@ export default function LoginScreen() {
           <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.topSection}>
             <View style={styles.logoArea}>
               <View style={styles.logoContainer}>
-                <KrioLogo width={220} height={75} />
+                <Image
+                  source={require("@/assets/logos/krio-logo.png")}
+                  style={{ width: 220, height: 75 }}
+                  resizeMode="contain"
+                />
               </View>
               <Text style={styles.tagline}>Secure staff login for admin and delivery operations</Text>
             </View>
@@ -64,7 +71,6 @@ export default function LoginScreen() {
             <Input icon={<Shield size={16} color={Colors.muted} />} placeholder="Staff email" value={staffUser} onChangeText={setStaffUser} keyboardType="email-address" autoCapitalize="none" />
             <Input icon={<Lock size={16} color={Colors.muted} />} placeholder="Password" value={staffPass} onChangeText={setStaffPass} secureTextEntry />
             <MainButton label={loading ? "Signing in..." : "Login"} onPress={submitLogin} disabled={loading} />
-            <Text style={styles.adminHint}>Create the staff account in Firebase Authentication, then add their UID or email as a document in Firestore admins.</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -99,7 +105,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   logoArea: { alignItems: "center", maxWidth: 520, width: "100%" },
-  logoContainer: { marginVertical: 8, alignItems: "center", justifyContent: "center" },
+  logoContainer: {
+    marginVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 4,
+  },
   tagline: { fontSize: 13, color: "rgba(255,255,255,0.78)", marginTop: 6, textAlign: "center", lineHeight: 20 },
   formCard: {
     backgroundColor: Colors.card,

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Animated,
+  Image,
   Linking,
   Modal,
   Platform,
@@ -551,7 +552,13 @@ export default function DeliveryScreen() {
           <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.header}>
             <View style={styles.headerTop}>
               <View style={styles.logoContainer}>
-                <KrioLogo width={120} height={36} preserveAspectRatio="xMinYMin meet" />
+                <View style={styles.whiteLogoBadge}>
+                  <Image
+                    source={require("@/assets/logos/krio-logo.png")}
+                    style={{ width: 120, height: 36 }}
+                    resizeMode="contain"
+                  />
+                </View>
                 <View style={styles.roleBadge}>
                   <Text style={styles.headerLabel}>DELIVERY</Text>
                 </View>
@@ -1088,6 +1095,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+  },
+  whiteLogoBadge: {
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   roleBadge: {
     backgroundColor: "rgba(255, 255, 255, 0.2)",

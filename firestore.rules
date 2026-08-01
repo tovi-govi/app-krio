@@ -63,6 +63,16 @@ service cloud.firestore {
       allow read, write: if isStaff();
     }
 
+    // Expenses collection: read & write for staff and authenticated users
+    match /expenses/{expenseId} {
+      allow read, write: if isAuthenticated() || isStaff();
+    }
+
+    // Expense Categories collection: read & write for staff and authenticated users
+    match /expenseCategories/{categoryId} {
+      allow read, write: if isAuthenticated() || isStaff();
+    }
+
     // Default rule: block all unauthenticated or unmatched access
     match /{document=**} {
       allow read, write: if false;

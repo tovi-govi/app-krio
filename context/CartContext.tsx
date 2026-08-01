@@ -139,6 +139,28 @@ export type DeliveryRecord = {
   editedBy?: string;
 };
 
+export type ExpenseCategory = {
+  id: string;
+  name: string;
+  isCustom?: boolean;
+  createdAt?: string;
+};
+
+export type Expense = {
+  id: string;
+  expenseName: string;
+  categoryId: string;
+  categoryName: string;
+  amount: number;
+  expenseDate: string;
+  paymentMethod: "Cash" | "Bank Transfer" | "UPI" | "Credit Card" | "Debit Card" | "Other";
+  description?: string;
+  receiptUrl?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
 const CART_KEY = "krio_cart";
 const ORDERS_KEY = "krio_orders";
 const PRODUCTS_KEY = "krio_products";
@@ -147,6 +169,18 @@ const NOTIFICATIONS_KEY = "krio_admin_notifications";
 const DELIVERIES_KEY = "krio_deliveries";
 const SCHEDULES_KEY = "krio_delivery_schedules";
 const PLANTS_KEY = "krio_plants";
+const EXPENSES_KEY = "krio_expenses";
+const EXPENSE_CATEGORIES_KEY = "krio_expense_categories";
+
+export const DEFAULT_EXPENSE_CATEGORIES: ExpenseCategory[] = [
+  { id: "rent", name: "Rent", isCustom: false },
+  { id: "salary", name: "Salary/Salary Advance", isCustom: false },
+  { id: "water-can-caps", name: "Water can caps", isCustom: false },
+  { id: "diesel", name: "Diesel", isCustom: false },
+  { id: "digital-marketing", name: "Digital Marketing", isCustom: false },
+  { id: "wifi-bills", name: "Wifi Bills", isCustom: false },
+  { id: "road-tax", name: "Road Tax", isCustom: false },
+];
 
 export const DEFAULT_PRODUCTS: Product[] = [
   { id: "200ml", size: "200 ml Bottle", use: "On-the-go sip", emoji: "🧴", price: 10, stock: 0, isActive: true },
@@ -192,6 +226,12 @@ type CartContextValue = {
   markScheduleCompleted: (scheduleId: string, completedBy: string) => Promise<void>;
   adminNotifications: AdminNotification[];
   markAdminNotificationRead: (id: string) => Promise<void>;
+  expenses: Expense[];
+  expenseCategories: ExpenseCategory[];
+  addExpense: (expense: Omit<Expense, "id" | "createdAt" | "updatedAt">) => Promise<string>;
+  updateExpense: (id: string, expense: Partial<Expense>) => Promise<void>;
+  deleteExpense: (id: string) => Promise<void>;
+  addExpenseCategory: (categoryName: string) => Promise<ExpenseCategory>;
 };
 
 const CartContext = createContext<CartContextValue | undefined>(undefined);
@@ -458,6 +498,40 @@ function normalizeDeliverySchedule(id: string, data: any): DeliverySchedule {
   };
 }
 
+function normalizeExpenseCategory(id: string, data: any): ExpenseCategory {
+  return {
+    id,
+    name: String(data.name ?? ""),
+    isCustom: Boolean(data.isCustom ?? false),
+    createdAt: data.createdAt ? String(data.createdAt) : undefined,
+  };
+}
+
+function normalizeExpense(id: string, data: any): Expense {
+  const createdAtRaw = data.createdAt;
+  const createdAt =
+    createdAtRaw instanceof Date
+      ? createdAtRaw.toISOString()
+      : createdAtRaw && typeof createdAtRaw.toMillis === "function"
+      ? new Date(createdAtRaw.toMillis()).toISOString()
+      : String(createdAtRaw ?? new Date().toISOString());
+
+  return {
+    id,
+    expenseName: String(data.expenseName ?? ""),
+    categoryId: String(data.categoryId ?? "misc"),
+    categoryName: String(data.categoryName ?? "Miscellaneous"),
+    amount: Number(data.amount ?? 0),
+    expenseDate: String(data.expenseDate ?? new Date().toISOString().slice(0, 10)),
+    paymentMethod: (String(data.paymentMethod ?? "Cash") as any),
+    description: data.description ? String(data.description) : undefined,
+    receiptUrl: data.receiptUrl ? String(data.receiptUrl) : undefined,
+    createdBy: String(data.createdBy ?? "Admin"),
+    createdAt,
+    updatedAt: data.updatedAt ? String(data.updatedAt) : undefined,
+  };
+}
+
 function cleanFirestoreData<T>(value: T, seen = new WeakSet<object>(), depth = 0): T {
   if (depth > 12) return value;
   if (value === null || value === undefined) return value;
@@ -515,6 +589,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [plants, setPlants] = useState<Plant[]>(DEFAULT_PLANTS);
   const [adminNotifications, setAdminNotifications] = useState<AdminNotification[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [expenseCategories, setExpenseCategories] = useState<ExpenseCategory[]>(DEFAULT_EXPENSE_CATEGORIES);
 
   useEffect(() => {
     async function loadSavedData() {
@@ -610,6 +686,28 @@ export function CartProvider({ children }: { children: ReactNode }) {
       console.warn("[CartContext] Firestore plants listener error:", error);
     });
 
+    const unsubExpenses = onSnapshot(collection(db, "expenses"), (snapshot) => {
+      const nextExpenses = snapshot.docs
+        .map((item) => normalizeExpense(item.id, item.data()))
+        .sort((a, b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime());
+      setExpenses(nextExpenses);
+    }, (error) => {
+      console.warn("[CartContext] Firestore expenses listener error:", error);
+    });
+
+    const unsubExpenseCategories = onSnapshot(collection(db, "expenseCategories"), (snapshot) => {
+      const customCats = snapshot.docs.map((item) => normalizeExpenseCategory(item.id, item.data()));
+      const combined = [...DEFAULT_EXPENSE_CATEGORIES];
+      customCats.forEach((c) => {
+        if (!combined.some((item) => item.id === c.id)) {
+          combined.push(c);
+        }
+      });
+      setExpenseCategories(combined);
+    }, (error) => {
+      console.warn("[CartContext] Firestore expenseCategories listener error:", error);
+    });
+
     return () => {
       unsubProducts();
       unsubOrders();
@@ -618,6 +716,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       unsubNotifications();
       unsubOrganizations();
       unsubPlants();
+      unsubExpenses();
+      unsubExpenseCategories();
     };
   }, [firebaseReady]);
 
@@ -883,7 +983,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     updateDeliveryRecord: async (deliveryId, updatedData, editedBy) => {
       const existingDelivery = deliveries.find((d) => d.id === deliveryId);
       if (!existingDelivery) {
-        throw new Error("Original delivery record not found.");
+        throw new Error("Original delivery record not found or was removed in another session.");
       }
 
       const plantId = updatedData.plantId || existingDelivery.plantId;
@@ -1009,10 +1109,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
         !cleanOrganization.name ||
         !cleanOrganization.phone ||
         !cleanOrganization.email ||
-        !cleanOrganization.address ||
-        !cleanOrganization.gstNumber
+        !cleanOrganization.address
       ) {
-        throw new Error("All fields (Organization Name, Phone, Email, Address, and GST Number) are required.");
+        throw new Error("Organization Name, Phone, Email, and Address are required.");
       }
 
       if (firebaseReady && db) {
@@ -1205,7 +1304,72 @@ export function CartProvider({ children }: { children: ReactNode }) {
         );
       }
     },
-  }), [orders, deliveries, deliverySchedules, products, organizations, plants, adminNotifications]);
+    expenses,
+    expenseCategories,
+    addExpense: async (expenseData) => {
+      const id = `exp_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const newExpense: Expense = {
+        ...expenseData,
+        id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (firebaseReady && db) {
+        await setDoc(doc(db, "expenses", id), {
+          ...cleanFirestoreData(newExpense),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        setExpenses((prev) => [newExpense, ...prev]);
+      }
+      return id;
+    },
+    updateExpense: async (id, updatedData) => {
+      if (firebaseReady && db) {
+        await setDoc(
+          doc(db, "expenses", id),
+          {
+            ...cleanFirestoreData(updatedData),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      } else {
+        setExpenses((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, ...updatedData, updatedAt: new Date().toISOString() } : item))
+        );
+      }
+    },
+    deleteExpense: async (id) => {
+      if (firebaseReady && db) {
+        await deleteDoc(doc(db, "expenses", id));
+      } else {
+        setExpenses((prev) => prev.filter((item) => item.id !== id));
+      }
+    },
+    addExpenseCategory: async (categoryName: string) => {
+      const sanitizedName = categoryName.trim();
+      const id = `cat_${sanitizedName.toLowerCase().replace(/\s+/g, "-")}_${Date.now().toString(36)}`;
+      const newCategory: ExpenseCategory = {
+        id,
+        name: sanitizedName,
+        isCustom: true,
+        createdAt: new Date().toISOString(),
+      };
+
+      if (firebaseReady && db) {
+        await setDoc(doc(db, "expenseCategories", id), {
+          ...cleanFirestoreData(newCategory),
+          createdAt: serverTimestamp(),
+        });
+      } else {
+        setExpenseCategories((prev) => [...prev, newCategory]);
+      }
+      return newCategory;
+    },
+  }), [orders, deliveries, deliverySchedules, products, organizations, plants, adminNotifications, expenses, expenseCategories]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

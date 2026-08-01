@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { LogOut, Truck, FileText, Table } from "lucide-react-native";
+import { LogOut, Truck, FileText, Table, Receipt } from "lucide-react-native";
 import KrioLogo from "@/assets/logos/krio-logo.svg";
 import { Colors, Radius, Shadow } from "@/constants/theme";
 import { useCart } from "@/context/CartContext";
@@ -15,7 +15,7 @@ import SearchInput from "@/components/UI/SearchInput";
 
 export default function AdminHomeScreen() {
   const { user, isLoading, logout } = useAuth();
-  const { products, orders, deliveries, organizations, plants, firebaseReady } = useCart();
+  const { products, orders, deliveries, organizations, plants, expenses, firebaseReady } = useCart();
   const [selectedInvoiceMonth, setSelectedInvoiceMonth] = useState("");
   const [showInvoiceMenu, setShowInvoiceMenu] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
@@ -52,6 +52,12 @@ export default function AdminHomeScreen() {
     const emptyFromDeliveries = deliveries.reduce((total, d) => total + d.emptyCansReturned, 0);
     const emptyFromOrders = orders.reduce((total, order) => total + (order.emptyCansReturned ?? 0), 0);
 
+    const now = new Date();
+    const currentMonthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    const monthlyExpensesTotal = expenses
+      .filter((e) => e.expenseDate >= currentMonthStart)
+      .reduce((sum, e) => sum + e.amount, 0);
+
     return {
       totalProducts: products.length,
       totalOrders: orders.length,
@@ -59,8 +65,9 @@ export default function AdminHomeScreen() {
       totalPlants: plants.length,
       fullWaterCans: fullFromOrders + fullFromDeliveries,
       emptyWaterCans: emptyFromDeliveries + emptyFromOrders,
+      monthlyExpensesTotal,
     };
-  }, [orders, deliveries, products.length, plants.length]);
+  }, [orders, deliveries, products.length, plants.length, expenses]);
 
   const formattedMonthLabel = (monthKey: string) => {
     if (!monthKey) return "";
@@ -114,7 +121,13 @@ export default function AdminHomeScreen() {
         <LinearGradient colors={[Colors.primary, Colors.primaryLight]} style={styles.header}>
           <View style={styles.headerTop}>
             <View style={styles.logoContainer}>
-              <KrioLogo width={120} height={36} preserveAspectRatio="xMinYMin meet" />
+              <View style={styles.whiteLogoBadge}>
+                <Image
+                  source={require("@/assets/logos/krio-logo.png")}
+                  style={{ width: 120, height: 36 }}
+                  resizeMode="contain"
+                />
+              </View>
               <View style={styles.roleBadge}>
                 <Text style={styles.headerLabel}>ADMIN</Text>
               </View>
@@ -131,7 +144,7 @@ export default function AdminHomeScreen() {
           <Stat label="Products" value={String(homeStats.totalProducts)} />
           <Stat label="Orders" value={String(homeStats.totalOrders)} />
           <Stat label="Deliveries" value={String(homeStats.totalDeliveries)} />
-          <Stat label="Empty Returned" value={String(homeStats.emptyWaterCans)} />
+          <Stat label="Expenses (Month)" value={`₹${homeStats.monthlyExpensesTotal.toLocaleString("en-IN")}`} onPress={() => router.push("/admin/expenses")} />
         </View>
 
         {/* MONTHLY INVOICE & EXCEL SPREADSHEET TAB */}
@@ -350,7 +363,15 @@ export default function AdminHomeScreen() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, onPress }: { label: string; value: string; onPress?: () => void }) {
+  if (onPress) {
+    return (
+      <TouchableOpacity style={styles.statCard} onPress={onPress}>
+        <Text style={styles.statValue}>{value}</Text>
+        <Text style={styles.statLabel}>{label}</Text>
+      </TouchableOpacity>
+    );
+  }
   return (
     <View style={styles.statCard}>
       <Text style={styles.statValue}>{value}</Text>
@@ -365,6 +386,14 @@ const styles = StyleSheet.create({
   header: { borderRadius: Radius.xl, padding: 24, gap: 14, marginBottom: 12 },
   headerTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   logoContainer: { flexDirection: "row", alignItems: "center", gap: 10 },
+  whiteLogoBadge: {
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   roleBadge: { backgroundColor: "rgba(255, 255, 255, 0.2)", paddingHorizontal: 8, paddingVertical: 3, borderRadius: Radius.sm, borderWidth: 1, borderColor: "rgba(255, 255, 255, 0.3)" },
   headerLabel: { fontSize: 10, fontWeight: "800", letterSpacing: 1.5, color: Colors.white },
   headerTitle: { fontSize: 28, fontWeight: "900", color: Colors.white },

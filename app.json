@@ -25,6 +25,9 @@
       },
       "package": "com.krioh2o.app"
     },
+    "web": {
+      "favicon": "./assets/icon.png"
+    },
     "plugins": [
       "expo-router",
       [

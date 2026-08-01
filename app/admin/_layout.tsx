@@ -1,7 +1,7 @@
 import { Slot, useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
 import { SafeAreaView, StyleSheet, View } from "react-native";
-import { Building2, Calendar, Factory, Home, Package } from "lucide-react-native";
+import { Building2, Calendar, Factory, Home, Package, Receipt } from "lucide-react-native";
 import { useAuth } from "@/context/AuthContext";
 import Dock from "../components/Dock";
 import { Colors, Shadow } from "@/constants/theme";
@@ -30,6 +30,7 @@ export default function AdminLayout() {
     { icon: <Building2 size={18} color={Colors.white} />, label: "Partners", onClick: () => router.push("/admin/organizations") },
     { icon: <Factory size={18} color={Colors.white} />, label: "Plants", onClick: () => router.push("/admin/plants") },
     { icon: <Package size={18} color={Colors.white} />, label: "Inventory", onClick: () => router.push("/admin/inventory") },
+    { icon: <Receipt size={18} color={Colors.white} />, label: "Expenses", onClick: () => router.push("/admin/expenses") },
   ];
 
   return (

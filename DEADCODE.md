@@ -2,84 +2,73 @@
 
 ## Summary
 
-A comprehensive multi-angle audit was conducted across the entire codebase (`app/`, `components/`, `context/`, `services/`, `utils/`, `constants/`, and `api/`) tracing all entry points, imports, component references, and runtime dependencies.
-
-- **Files Identified for Deletion:** 1 file (160 lines)
-- **Functions/Methods Identified for Deletion:** 5 functions/methods (~75 lines)
-- **Classes/Type Interfaces Identified for Deletion:** 1 type interface (15 lines)
-- **Variables/Constants Identified for Deletion:** 3 context state variables (~25 lines)
-
-Total estimated lines of code that can be safely deleted: **~275 lines**.
+- **Total Files Identified for Deletion:** 6 asset files (unused client/partner brand logos in `assets/logos/`)
+- **Total Functions/Methods Identified for Deletion:** 1 function (`exportExpensesToCSV` in `utils/expenseExporter.ts`)
+- **Total Unused Imports & Variables Identified for Cleanup:** 8 unused icon imports & symbols in `app/admin/expenses.tsx`
+- **Total Classes Identified for Deletion:** 0 (Codebase follows functional React / TypeScript architecture)
 
 ---
 
 ## Files to Delete
 
-### 1. `components/UI/LazyList.tsx`
-- **Location:** [components/UI/LazyList.tsx](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/components/UI/LazyList.tsx)
-- **Reason:** Component created for paginated lazy list rendering with search/filter capabilities. It is not imported or referenced anywhere in `app/`, `components/`, `context/`, or `utils/`.
+The following files are not imported, referenced, or loaded anywhere in the application source code or build configuration:
+
+1. **[assets/logos/associate.webp](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/assets/logos/associate.webp)**
+   - **Reason:** Legacy image asset. Never referenced in any TSX/JSX component, stylesheet, or dynamic image require call.
+2. **[assets/logos/bajaj.svg](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/assets/logos/bajaj.svg)**
+   - **Reason:** Unused partner SVG logo asset. Not imported or rendered in any view.
+3. **[assets/logos/digit.svg](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/assets/logos/digit.svg)**
+   - **Reason:** Unused SVG logo asset. No references exist across the workspace.
+4. **[assets/logos/equitas.jpg](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/assets/logos/equitas.jpg)**
+   - **Reason:** Unused partner JPEG image asset. No references exist across the workspace.
+5. **[assets/logos/hdfc.svg](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/assets/logos/hdfc.svg)**
+   - **Reason:** Unused partner SVG logo asset. Never imported or rendered.
+6. **[assets/logos/lic.svg](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/assets/logos/lic.svg)**
+   - **Reason:** Unused SVG logo asset. No references exist in source code.
 
 ---
 
 ## Functions/Methods to Delete
 
-### 1. `addToCart()`
-- **Location:** [context/CartContext.tsx](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/context/CartContext.tsx)
-- **Reason:** Method defined and exposed on `CartContextValue` for adding products to a shopping cart. Never invoked in any admin or delivery screen.
-
-### 2. `increaseQuantity()`
-- **Location:** [context/CartContext.tsx](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/context/CartContext.tsx)
-- **Reason:** Method defined on `CartContextValue` to increment cart item quantity. Never called anywhere in the codebase.
-
-### 3. `decreaseQuantity()`
-- **Location:** [context/CartContext.tsx](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/context/CartContext.tsx)
-- **Reason:** Method defined on `CartContextValue` to decrement cart item quantity. Never called anywhere in the codebase.
-
-### 4. `removeFromCart()`
-- **Location:** [context/CartContext.tsx](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/context/CartContext.tsx)
-- **Reason:** Method defined on `CartContextValue` to remove items from cart. Unused across all active screens.
-
-### 5. `deleteProduct()`
-- **Location:** [context/CartContext.tsx](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/context/CartContext.tsx)
-- **Reason:** Method defined on `CartContextValue` for hard deleting products. Inventory management in `app/admin/inventory.tsx` toggles active visibility via `saveProduct` instead; `deleteProduct` is never invoked.
+### `utils/expenseExporter.ts`
+- **`exportExpensesToCSV`** (lines 189–218):
+  - **Reason:** CSV export functionality was intentionally removed from the user interface in favor of Excel (`.xlsx`) and PDF exports. The function remains in `expenseExporter.ts` and its import in `app/admin/expenses.tsx` is completely unused.
 
 ---
 
 ## Classes to Delete
 
-### 1. `LazyListProps<T>`
-- **Location:** [components/UI/LazyList.tsx](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/components/UI/LazyList.tsx)
-- **Reason:** Generic TypeScript prop interface for the unused `LazyList` component.
+- **None**: The application is built using modern functional React TypeScript components and custom hooks. No object-oriented class hierarchies or unused ES6 classes exist in the source codebase.
 
 ---
 
 ## Variables/Constants to Delete
 
-### 1. `cart`
-- **Location:** [context/CartContext.tsx](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/context/CartContext.tsx)
-- **Reason:** Unused cart array state maintained inside `CartContext`. No client UI renders or consumes the shopping cart array.
-
-### 2. `totalItems`
-- **Location:** [context/CartContext.tsx](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/context/CartContext.tsx)
-- **Reason:** Computed cart item quantity total state variable in `CartContext`. Unused across all application screens.
-
-### 3. `total`
-- **Location:** [context/CartContext.tsx](file:///c:/Users/Govindh%20Reddy/Documents/PaidStuff/app-krio-main/app-krio-main/context/CartContext.tsx)
-- **Reason:** Computed cart currency total amount state variable in `CartContext`. Unused across all application screens.
+### `app/admin/expenses.tsx`
+- **Unused Icon Imports from `lucide-react-native`:**
+  - `Filter` (line 26)
+  - `RotateCcw` (line 29)
+  - `Search` (line 30)
+  - `TrendingDown` (line 32)
+  - `DollarSign` (line 36)
+  - `Camera` (line 39)
+  - `ImageIcon` (line 42)
+  - `exportExpensesToCSV` (imported from `@/utils/expenseExporter`)
 
 ---
 
 ## Verification Notes
 
-1. **Static Analysis & Text Tracing:** Verified via comprehensive string and pattern searches across all files (`.tsx`, `.ts`, `.js`, `.json`).
-2. **Platform & Layout Component Verification:** Confirmed `Dock.tsx`, `Dock.web.tsx`, and `Dock.css` are actively consumed in `app/admin/_layout.tsx` for cross-platform navigation.
-3. **API & Backend Verification:** Retained `api/health.js` as an active Vercel serverless healthcheck endpoint.
-4. **Theme Design Tokens:** Verified `Colors`, `Radius`, `Shadow` (including `Shadow.glow`), and spacing tokens are actively consumed across modal, toast, and delivery card components.
+1. **Platform Resolution (.web.tsx):**
+   - Verified that `app/components/Dock.web.tsx` is active for web builds via Expo/Metro platform-specific extension resolution when `Dock.tsx` is imported.
+2. **Serverless Endpoint:**
+   - Verified `api/health.js` as an active Vercel serverless healthcheck endpoint.
+3. **Core Utility & Component Verification:**
+   - Confirmed `routeOptimizer.ts`, `invoiceAggregator.ts`, `excelInvoiceGenerator.ts`, `LocationPickerModal.tsx`, `ConfirmModal.tsx`, `Toast.tsx`, and `Skeleton.tsx` are actively imported and used.
 
 ---
 
 ## Estimated Impact
 
-- **Files to remove:** 1 file (`components/UI/LazyList.tsx`)
-- **Lines of code to remove:** ~275 lines
-- **Bundle & Performance Impact:** Streamlined `CartContext` evaluation and state recalculations with reduced JS bundle overhead.
+- **Disk Space Savings:** ~800 KB (removal of unused logo images and vector graphics).
+- **Code Reduction:** ~35 lines of TypeScript code and unused import declarations.
