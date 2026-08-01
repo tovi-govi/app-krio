@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Stack, router, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
@@ -6,9 +6,6 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
 
 // Keep the splash screen visible until we explicitly hide it below.
-// Any rejection here is harmless (e.g. already hidden / unsupported in this
-// environment), so we swallow it instead of letting it surface as an
-// "Unhandled promise rejection".
 SplashScreen.preventAutoHideAsync().catch(() => { });
 
 export const unstable_settings = {
@@ -29,6 +26,7 @@ export default function RootLayout() {
 function RootNavigator() {
   const { user, isLoading } = useAuth();
   const segments = useSegments();
+  const isInitialLaunch = useRef(true);
 
   useEffect(() => {
     if (isLoading) return;
@@ -38,8 +36,18 @@ function RootNavigator() {
     const firstSegment = segments[0];
     const isLoginRoute = firstSegment === "login";
 
-    if (!user && !isLoginRoute) {
-      router.replace("/login");
+    if (!user) {
+      if (!isLoginRoute) {
+        router.replace("/login");
+      }
+      return;
+    }
+
+    // On fresh app open, always reset navigation to primary home dashboard
+    if (isInitialLaunch.current) {
+      isInitialLaunch.current = false;
+      const targetRoute = user.role === "delivery" ? "/delivery" : "/admin";
+      router.replace(targetRoute);
       return;
     }
 
