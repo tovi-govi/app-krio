@@ -12,11 +12,27 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyBqjUXpUHeSRTCjlJk4fM4SJZkYXXfTols",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "krio-82c35.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "krio-82c35",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "krio-82c35.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "884297647614",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:884297647614:web:92bdf9841b1b1076406caf"
       }
     },
     "production": {
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyBqjUXpUHeSRTCjlJk4fM4SJZkYXXfTols",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "krio-82c35.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "krio-82c35",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "krio-82c35.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "884297647614",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:884297647614:web:92bdf9841b1b1076406caf"
       }
     }
   },
