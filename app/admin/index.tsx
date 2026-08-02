@@ -3,24 +3,37 @@ import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "rea
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { LogOut, Truck, FileText, Table, Receipt } from "lucide-react-native";
+import { LogOut, Truck, FileText, Table, Receipt, Edit3 } from "lucide-react-native";
 import KrioLogo from "@/assets/logos/krio-logo.svg";
 import { Colors, Radius, Shadow } from "@/constants/theme";
-import { useCart } from "@/context/CartContext";
+import { useCart, DeliveryRecord } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { SkeletonList } from "@/components/UI/Skeleton";
 import DownloadInvoiceModal from "../components/DownloadInvoiceModal";
+import AdminEditDeliveryModal from "@/components/AdminEditDeliveryModal";
 import { aggregateMonthlyDeliveries } from "@/utils/invoiceAggregator";
 import SearchInput from "@/components/UI/SearchInput";
 
 export default function AdminHomeScreen() {
   const { user, isLoading, logout } = useAuth();
-  const { products, orders, deliveries, organizations, plants, expenses, firebaseReady } = useCart();
+  const {
+    products,
+    orders,
+    deliveries,
+    organizations,
+    plants,
+    expenses,
+    firebaseReady,
+    updateDeliveryRecord,
+    deleteDeliveryRecord,
+  } = useCart();
   const [selectedInvoiceMonth, setSelectedInvoiceMonth] = useState("");
   const [showInvoiceMenu, setShowInvoiceMenu] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [deliverySearchText, setDeliverySearchText] = useState("");
   const [visibleDeliveryCount, setVisibleDeliveryCount] = useState(25);
+  const [editingDelivery, setEditingDelivery] = useState<DeliveryRecord | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   const invoiceMonthKeys = useMemo(() => {
     const orderKeys = orders.map((order) => {
@@ -311,7 +324,7 @@ export default function AdminHomeScreen() {
                   <View style={styles.deliveryIconBox}>
                     <Truck size={20} color={Colors.white} />
                   </View>
-                  <View style={{ flex: 1 }}>
+                  <View style={{ flex: 1, marginRight: 8 }}>
                     <Text style={styles.deliveryOrgName}>{delivery.organizationName || "General Delivery"}</Text>
                     <Text style={styles.deliveryMetaText}>
                       By {delivery.deliveredBy || "Delivery Staff"} • {delivery.createdAt ? new Date(delivery.createdAt).toLocaleString() : ""}
@@ -321,7 +334,22 @@ export default function AdminHomeScreen() {
                         Shipped from: {delivery.plantName}{delivery.plantLocation ? ` (${delivery.plantLocation})` : ""}
                       </Text>
                     ) : null}
+                    {delivery.isEdited ? (
+                      <Text style={styles.editedAuditText}>
+                        Edited by {delivery.editedBy || "Admin"}{delivery.editedAt ? ` on ${new Date(delivery.editedAt).toLocaleDateString()}` : ""}
+                      </Text>
+                    ) : null}
                   </View>
+                  <TouchableOpacity
+                    style={styles.editDeliveryBtn}
+                    onPress={() => {
+                      setEditingDelivery(delivery);
+                      setShowEditModal(true);
+                    }}
+                  >
+                    <Edit3 size={14} color={Colors.primary} />
+                    <Text style={styles.editDeliveryBtnText}>Edit</Text>
+                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.deliveryStatsRow}>
@@ -358,6 +386,22 @@ export default function AdminHomeScreen() {
         onClose={() => setShowDownloadModal(false)}
         organizations={organizations}
         deliveries={deliveries}
+      />
+
+      <AdminEditDeliveryModal
+        visible={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setEditingDelivery(null);
+        }}
+        delivery={editingDelivery}
+        organizations={organizations}
+        plants={plants}
+        currentUserName={user?.name || "Admin"}
+        onSave={updateDeliveryRecord}
+        onDelete={async (deliveryId) => {
+          await deleteDeliveryRecord(deliveryId, user?.name || "Admin");
+        }}
       />
     </SafeAreaView>
   );
@@ -452,6 +496,9 @@ const styles = StyleSheet.create({
   deliveryIconBox: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.primary, alignItems: "center", justifyContent: "center" },
   deliveryOrgName: { fontSize: 16, fontWeight: "900", color: Colors.foreground },
   deliveryMetaText: { fontSize: 12, color: Colors.muted, marginTop: 2 },
+  editedAuditText: { fontSize: 11, fontWeight: "800", color: Colors.primary, marginTop: 3 },
+  editDeliveryBtn: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: Colors.primary + "15", paddingHorizontal: 12, paddingVertical: 8, borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.primary + "30" },
+  editDeliveryBtnText: { fontSize: 12, fontWeight: "800", color: Colors.primary },
   deliveryStatsRow: { flexDirection: "row", gap: 12 },
   deliveryStatBadge: { flex: 1, backgroundColor: Colors.mutedBg, borderRadius: Radius.md, padding: 12, borderWidth: 1, borderColor: Colors.border },
   deliveryStatLabel: { fontSize: 11, color: Colors.muted, fontWeight: "700" },

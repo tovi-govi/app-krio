@@ -141,6 +141,7 @@ export type DeliveryRecord = {
   isEdited?: boolean;
   editedAt?: string;
   editedBy?: string;
+  editReason?: string;
 };
 
 export type ExpenseCategory = {
@@ -223,7 +224,7 @@ type CartContextValue = {
   deletePlant: (id: string) => Promise<void>;
   updatePlantInventory: (plantId: string, inventory: Record<string, number>) => Promise<void>;
   addDeliveryRecord: (delivery: DeliveryRecord) => Promise<void>;
-  updateDeliveryRecord: (deliveryId: string, updatedData: Partial<DeliveryRecord>, editedBy: string) => Promise<void>;
+  updateDeliveryRecord: (deliveryId: string, updatedData: Partial<DeliveryRecord>, editedBy: string, editReason?: string) => Promise<void>;
   deleteDeliveryRecord: (deliveryId: string, deletedBy: string) => Promise<void>;
   addOrUpdateSchedule: (data: Partial<DeliverySchedule> & { organizationId: string; organizationName: string; scheduledDate: string }) => Promise<string>;
   rescheduleOrganization: (scheduleId: string, newDate: string, newOrder?: number) => Promise<void>;
@@ -1053,7 +1054,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    updateDeliveryRecord: async (deliveryId, updatedData, editedBy) => {
+    updateDeliveryRecord: async (deliveryId, updatedData, editedBy, editReason) => {
       const existingDelivery = deliveries.find((d) => d.id === deliveryId);
       if (!existingDelivery) {
         throw new Error("Original delivery record not found or was removed in another session.");
@@ -1101,6 +1102,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         isEdited: true,
         editedAt,
         editedBy,
+        ...(editReason ? { editReason } : {}),
       };
 
       if (firebaseReady && db) {
@@ -1191,6 +1193,20 @@ export function CartProvider({ children }: { children: ReactNode }) {
             },
             { merge: true }
           );
+
+          if (updatedDelivery.scheduleId) {
+            const scheduleRef = doc(db!, "deliverySchedules", updatedDelivery.scheduleId);
+            transaction.set(
+              scheduleRef,
+              {
+                organizationId: updatedDelivery.organizationId || "",
+                organizationName: updatedDelivery.organizationName || "",
+                status: "Completed",
+                updatedAt: serverTimestamp(),
+              },
+              { merge: true }
+            );
+          }
 
           const notificationRef = doc(db!, "adminNotifications", `delivery-edit-${deliveryId}-${Date.now()}`);
           const notificationMsg = `${editedBy} edited delivery for ${updatedDelivery.organizationName || "Organization"}.`;

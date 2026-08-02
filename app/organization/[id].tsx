@@ -3,20 +3,31 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-nati
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, useLocalSearchParams } from "expo-router";
-import { ArrowLeft, ClipboardList, PackageCheck, Truck, Tag } from "lucide-react-native";
+import { ArrowLeft, ClipboardList, PackageCheck, Truck, Tag, Edit3 } from "lucide-react-native";
 import { Colors, Radius, Shadow } from "@/constants/theme";
-import { useCart, getOrganizationProductPrice } from "@/context/CartContext";
+import { useCart, getOrganizationProductPrice, DeliveryRecord } from "@/context/CartContext";
 import { calculateDeliveryRowAmount } from "@/utils/invoiceAggregator";
 import { useAuth } from "@/context/AuthContext";
 import SearchInput from "@/components/UI/SearchInput";
+import AdminEditDeliveryModal from "@/components/AdminEditDeliveryModal";
 
 export default function OrganizationOrdersScreen() {
   const params = useLocalSearchParams();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const router = useRouter();
   const { user, isLoading } = useAuth();
-  const { products, orders, deliveries, organizations } = useCart();
+  const {
+    products,
+    orders,
+    deliveries,
+    organizations,
+    plants,
+    updateDeliveryRecord,
+    deleteDeliveryRecord,
+  } = useCart();
   const [deliverySearchText, setDeliverySearchText] = useState("");
+  const [editingDelivery, setEditingDelivery] = useState<DeliveryRecord | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
 
   const organization = useMemo(
     () => (id ? organizations.find((org) => org.id === id) : undefined),
@@ -221,6 +232,27 @@ export default function OrganizationOrdersScreen() {
                       <Text style={styles.orderMetaText}>
                         {delivery.createdAt ? new Date(delivery.createdAt).toLocaleDateString() : ""}
                       </Text>
+                      {user?.role === "admin" && (
+                        <TouchableOpacity
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            gap: 4,
+                            backgroundColor: Colors.primary + "15",
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                            borderRadius: Radius.sm,
+                            marginTop: 4,
+                          }}
+                          onPress={() => {
+                            setEditingDelivery(delivery);
+                            setShowEditModal(true);
+                          }}
+                        >
+                          <Edit3 size={12} color={Colors.primary} />
+                          <Text style={{ fontSize: 11, fontWeight: "800", color: Colors.primary }}>Edit</Text>
+                        </TouchableOpacity>
+                      )}
                       {delivery.isEdited ? (
                         <View style={{ backgroundColor: "#FEF3C7", paddingHorizontal: 6, paddingVertical: 2, borderRadius: Radius.full, marginTop: 4, borderWidth: 1, borderColor: "#F59E0B" }}>
                           <Text style={{ fontSize: 10, fontWeight: "800", color: "#B45309" }}>
@@ -286,6 +318,21 @@ export default function OrganizationOrdersScreen() {
           )}
         </View>
       </ScrollView>
+      <AdminEditDeliveryModal
+        visible={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setEditingDelivery(null);
+        }}
+        delivery={editingDelivery}
+        organizations={organizations}
+        plants={plants}
+        currentUserName={user?.name || "Admin"}
+        onSave={updateDeliveryRecord}
+        onDelete={async (deliveryId) => {
+          await deleteDeliveryRecord(deliveryId, user?.name || "Admin");
+        }}
+      />
     </SafeAreaView>
   );
 }
