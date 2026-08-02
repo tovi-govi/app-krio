@@ -159,7 +159,7 @@ export default function AdminInventoryScreen() {
                 {product.plantBreakdown.map((pb) => (
                   <View key={pb.plantId} style={styles.plantChip}>
                     <Factory size={12} color={Colors.primary} />
-                    <Text style={styles.plantChipName}>{pb.plantName}:</Text>
+                    <Text style={styles.plantChipName} numberOfLines={1} ellipsizeMode="tail">{pb.plantName}:</Text>
                     <Text style={styles.plantChipStock}>{pb.stock} units</Text>
                   </View>
                 ))}
@@ -289,9 +289,10 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
     borderWidth: 1,
     borderColor: Colors.border,
+    maxWidth: "100%",
   },
-  plantChipName: { fontSize: 12, color: Colors.muted, fontWeight: "700" },
-  plantChipStock: { fontSize: 12, color: Colors.primary, fontWeight: "900" },
+  plantChipName: { fontSize: 12, color: Colors.muted, fontWeight: "700", flexShrink: 1 },
+  plantChipStock: { fontSize: 12, color: Colors.primary, fontWeight: "900", flexShrink: 0 },
   emptyCard: {
     backgroundColor: Colors.card,
     borderRadius: Radius.xl,

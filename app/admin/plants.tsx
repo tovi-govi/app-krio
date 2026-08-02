@@ -244,9 +244,13 @@ export default function AdminPlantsScreen() {
             return (
               <View key={prod.id} style={styles.stockRow}>
                 <Text style={styles.emojiText}>{prod.emoji}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.prodTitle}>{prod.size}</Text>
-                  <Text style={styles.prodSub}>{prod.use}</Text>
+                <View style={styles.prodInfoCol}>
+                  <Text style={styles.prodTitle} numberOfLines={1} ellipsizeMode="tail">
+                    {prod.size}
+                  </Text>
+                  <Text style={styles.prodSub} numberOfLines={1} ellipsizeMode="tail">
+                    {prod.use}
+                  </Text>
                 </View>
 
                 {/* Stock Controls (+ / - / Input) */}
@@ -421,15 +425,21 @@ const styles = StyleSheet.create({
   stockRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    justifyContent: "space-between",
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border + "50",
+    width: "100%",
   },
-  emojiText: { fontSize: 24 },
+  emojiText: { fontSize: 24, marginRight: 8, flexShrink: 0 },
+  prodInfoCol: {
+    flex: 1,
+    flexShrink: 1,
+    marginRight: 8,
+  },
   prodTitle: { fontSize: 14, fontWeight: "900", color: Colors.foreground },
   prodSub: { fontSize: 12, color: Colors.muted, marginTop: 2 },
-  controlGroup: { flexDirection: "row", alignItems: "center", gap: 6 },
+  controlGroup: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 },
   stepBtn: {
     width: 32,
     height: 32,
@@ -439,9 +449,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderWidth: 1,
     borderColor: Colors.border,
+    flexShrink: 0,
   },
   stockInput: {
-    width: 70,
+    width: 54,
+    minWidth: 40,
     height: 36,
     backgroundColor: Colors.mutedBg,
     borderRadius: Radius.md,
@@ -451,6 +463,8 @@ const styles = StyleSheet.create({
     color: Colors.foreground,
     borderWidth: 1,
     borderColor: Colors.border,
+    paddingHorizontal: 2,
+    flexShrink: 0,
   },
   statusPill: {
     flexDirection: "row",

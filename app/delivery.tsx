@@ -933,9 +933,11 @@ export default function DeliveryScreen() {
                 <Text style={styles.inputLabel}>2. 20L Water Cans</Text>
                 <View style={styles.qtyCard}>
                   <View style={styles.qtyRow}>
-                    <View style={{ flex: 1, marginRight: 8 }}>
-                      <Text style={styles.qtyLabel}>Full Cans Loaded (Delivered)</Text>
-                      <Text style={{ fontSize: 11, color: Colors.muted, marginTop: 2 }}>
+                    <View style={styles.qtyInfoCol}>
+                      <Text style={styles.qtyLabel} numberOfLines={2} ellipsizeMode="tail">
+                        Full Cans Loaded (Delivered)
+                      </Text>
+                      <Text style={styles.stockAvailableText} numberOfLines={1} ellipsizeMode="tail">
                         Stock available: {max20lCans} cans
                       </Text>
                     </View>
@@ -959,7 +961,11 @@ export default function DeliveryScreen() {
 
                 <View style={styles.qtyCard}>
                   <View style={styles.qtyRow}>
-                    <Text style={styles.qtyLabel}>Empty Cans Returned</Text>
+                    <View style={styles.qtyInfoCol}>
+                      <Text style={styles.qtyLabel} numberOfLines={2} ellipsizeMode="tail">
+                        Empty Cans Returned
+                      </Text>
+                    </View>
                     <View style={styles.counterRow}>
                       <TouchableOpacity style={styles.counterBtn} onPress={() => handleAddEmptyCans(-1)}>
                         <Minus size={16} color={Colors.foreground} />
@@ -982,9 +988,11 @@ export default function DeliveryScreen() {
                 <Text style={styles.inputLabel}>3. Packaged Bottle Cases (Optional)</Text>
                 <View style={styles.qtyCard}>
                   <View style={styles.qtyRow}>
-                    <View style={{ flex: 1, marginRight: 8 }}>
-                      <Text style={styles.qtyLabel}>200ml Packs (35 btls/pack)</Text>
-                      <Text style={{ fontSize: 11, color: Colors.muted, marginTop: 2 }}>
+                    <View style={styles.qtyInfoCol}>
+                      <Text style={styles.qtyLabel} numberOfLines={2} ellipsizeMode="tail">
+                        200ml Packs (35 btls/pack)
+                      </Text>
+                      <Text style={styles.stockAvailableText} numberOfLines={1} ellipsizeMode="tail">
                         Stock available: {max200mlPacks} packs
                       </Text>
                     </View>
@@ -1008,9 +1016,11 @@ export default function DeliveryScreen() {
 
                 <View style={styles.qtyCard}>
                   <View style={styles.qtyRow}>
-                    <View style={{ flex: 1, marginRight: 8 }}>
-                      <Text style={styles.qtyLabel}>500ml Cases (24 btls/case)</Text>
-                      <Text style={{ fontSize: 11, color: Colors.muted, marginTop: 2 }}>
+                    <View style={styles.qtyInfoCol}>
+                      <Text style={styles.qtyLabel} numberOfLines={2} ellipsizeMode="tail">
+                        500ml Cases (24 btls/case)
+                      </Text>
+                      <Text style={styles.stockAvailableText} numberOfLines={1} ellipsizeMode="tail">
                         Stock available: {max500mlCases} cases
                       </Text>
                     </View>
@@ -1034,9 +1044,11 @@ export default function DeliveryScreen() {
 
                 <View style={styles.qtyCard}>
                   <View style={styles.qtyRow}>
-                    <View style={{ flex: 1, marginRight: 8 }}>
-                      <Text style={styles.qtyLabel}>1 Litre Cases (12 btls/case)</Text>
-                      <Text style={{ fontSize: 11, color: Colors.muted, marginTop: 2 }}>
+                    <View style={styles.qtyInfoCol}>
+                      <Text style={styles.qtyLabel} numberOfLines={2} ellipsizeMode="tail">
+                        1 Litre Cases (12 btls/case)
+                      </Text>
+                      <Text style={styles.stockAvailableText} numberOfLines={1} ellipsizeMode="tail">
                         Stock available: {max1lCases} cases
                       </Text>
                     </View>
@@ -1555,18 +1567,28 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    width: "100%",
+  },
+  qtyInfoCol: {
+    flex: 1,
+    flexShrink: 1,
+    marginRight: 8,
   },
   qtyLabel: {
     fontSize: 13,
     fontWeight: "700",
     color: Colors.foreground,
-    flex: 1,
-    marginRight: 8,
+  },
+  stockAvailableText: {
+    fontSize: 11,
+    color: Colors.muted,
+    marginTop: 2,
   },
   counterRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    flexShrink: 0,
+    gap: 6,
   },
   counterBtn: {
     width: 32,
@@ -1577,9 +1599,11 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
   qtyInput: {
-    width: 50,
+    width: 48,
+    minWidth: 40,
     height: 36,
     backgroundColor: Colors.card,
     borderRadius: Radius.sm,
@@ -1589,6 +1613,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
     color: Colors.foreground,
+    paddingHorizontal: 2,
+    flexShrink: 0,
   },
   quickAddRow: {
     flexDirection: "row",
