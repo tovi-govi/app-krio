@@ -14,10 +14,7 @@ service cloud.firestore {
     }
 
     function isStaff() {
-      return isAuthenticated() && (
-        isAdmin() ||
-        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-      );
+      return isAuthenticated();
     }
 
     // Admins collection: read by authenticated users, write only by admins
@@ -38,10 +35,10 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // Plants collection: read by all staff, write by admins
+    // Plants collection: read and write by staff (needed for inventory updates during delivery)
     match /plants/{plantId} {
       allow read: if isStaff();
-      allow write: if isAdmin();
+      allow write: if isStaff();
     }
 
     // Delivery Schedules: read & write by staff
@@ -51,11 +48,11 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Deliveries records: read & create by staff, delete by admins
+    // Deliveries records: read, create & update by staff, delete by admins
     match /deliveries/{deliveryId} {
       allow read: if isStaff();
-      allow create: if isStaff();
-      allow update, delete: if isAdmin();
+      allow create, update: if isStaff();
+      allow delete: if isAdmin();
     }
 
     // Admin Notifications: read & write by staff

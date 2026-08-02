@@ -1,12 +1,18 @@
 import { useEffect, useRef } from "react";
+import { Platform } from "react-native";
 import { Stack, router, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
 
-// Keep the splash screen visible until we explicitly hide it below.
-SplashScreen.preventAutoHideAsync().catch(() => { });
+if (Platform.OS !== "web") {
+  try {
+    SplashScreen.preventAutoHideAsync().catch(() => { });
+  } catch (e) {
+    // Ignore web/unlinked native module errors
+  }
+}
 
 export const unstable_settings = {
   initialRouteName: "login",
@@ -31,7 +37,13 @@ function RootNavigator() {
   useEffect(() => {
     if (isLoading) return;
 
-    SplashScreen.hideAsync().catch(() => { });
+    if (Platform.OS !== "web") {
+      try {
+        SplashScreen.hideAsync().catch(() => { });
+      } catch (e) {
+        // Ignore web/unlinked native module errors
+      }
+    }
 
     const firstSegment = segments[0];
     const isLoginRoute = firstSegment === "login";

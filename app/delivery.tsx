@@ -38,7 +38,7 @@ import {
 } from "lucide-react-native";
 import KrioLogo from "@/assets/logos/krio-logo.svg";
 import { Colors, Radius, Shadow } from "@/constants/theme";
-import { DeliveryRecord, DeliverySchedule, Organization, useCart } from "@/context/CartContext";
+import { DeliveryRecord, DeliverySchedule, Organization, useCart, getPlantProductStock } from "@/context/CartContext";
 import { useAuth } from "@/context/AuthContext";
 import { SkeletonList } from "@/components/UI/Skeleton";
 import { optimizeDeliveryRoute } from "@/utils/routeOptimizer";
@@ -72,10 +72,7 @@ export default function DeliveryScreen() {
   const prod500ml = useMemo(() => products.find((p) => p.id === "500ml"), [products]);
   const prod1l = useMemo(() => products.find((p) => p.id === "1l"), [products]);
 
-  const max20lCans = prod20l ? prod20l.stock : 999999;
-  const max200mlPacks = prod200ml ? Math.floor(prod200ml.stock / 35) : 999999;
-  const max500mlCases = prod500ml ? Math.floor(prod500ml.stock / 24) : 999999;
-  const max1lCases = prod1l ? Math.floor(prod1l.stock / 12) : 999999;
+
 
   // Format today's date YYYY-MM-DD
   const todayStr = useMemo(() => {
@@ -199,9 +196,40 @@ export default function DeliveryScreen() {
   }, [activeSchedule, organizations]);
 
   const selectedPlant = useMemo(
-    () => plants.find((p) => p.id === selectedPlantId) ?? null,
+    () => plants.find((p) => p.id === selectedPlantId) ?? plants[0] ?? null,
     [plants, selectedPlantId]
   );
+
+  const isEditingSelectedPlant = Boolean(
+    editingDeliveryRecord && editingDeliveryRecord.plantId === selectedPlant?.id
+  );
+
+  const extraStock20l = isEditingSelectedPlant ? (editingDeliveryRecord?.fullCansLoaded || 0) : 0;
+  const extraStock200ml = isEditingSelectedPlant ? (editingDeliveryRecord?.cases200mlDelivered || 0) * 35 : 0;
+  const extraStock500ml = isEditingSelectedPlant ? (editingDeliveryRecord?.cases500mlDelivered || 0) * 24 : 0;
+  const extraStock1l = isEditingSelectedPlant ? (editingDeliveryRecord?.cases1lDelivered || 0) * 12 : 0;
+
+  const stock20l = useMemo(
+    () => getPlantProductStock(selectedPlant, "20l", prod20l?.stock ?? 0) + extraStock20l,
+    [selectedPlant, prod20l, extraStock20l]
+  );
+  const stock200ml = useMemo(
+    () => getPlantProductStock(selectedPlant, "200ml", prod200ml?.stock ?? 0) + extraStock200ml,
+    [selectedPlant, prod200ml, extraStock200ml]
+  );
+  const stock500ml = useMemo(
+    () => getPlantProductStock(selectedPlant, "500ml", prod500ml?.stock ?? 0) + extraStock500ml,
+    [selectedPlant, prod500ml, extraStock500ml]
+  );
+  const stock1l = useMemo(
+    () => getPlantProductStock(selectedPlant, "1l", prod1l?.stock ?? 0) + extraStock1l,
+    [selectedPlant, prod1l, extraStock1l]
+  );
+
+  const max20lCans = stock20l;
+  const max200mlPacks = Math.floor(stock200ml / 35);
+  const max500mlCases = Math.floor(stock500ml / 24);
+  const max1lCases = Math.floor(stock1l / 12);
 
   const openInGoogleMaps = (org?: Organization | null, fallbackName?: string) => {
     let query = "";
@@ -503,15 +531,13 @@ export default function DeliveryScreen() {
           cases200mlDelivered: c200,
           cases500mlDelivered: c500,
           cases1lDelivered: c1l,
+          scheduleId: activeSchedule.id,
           deliveredBy: user.name,
           createdAt: new Date().toISOString(),
         };
 
-        // 1. Add delivery log to Firestore
+        // Add delivery log and atomically mark schedule completed in single transaction
         await addDeliveryRecord(payload);
-
-        // 2. Mark schedule as Completed in Firestore
-        await markScheduleCompleted(activeSchedule.id, user.name);
 
         setShowConfirmModal(false);
         setActiveSchedule(null);

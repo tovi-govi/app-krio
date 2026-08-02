@@ -154,6 +154,12 @@ export default function ExpensesScreen() {
       } else {
         const response = await fetch(pickedFile.uri);
         const blob = await response.blob();
+
+        if (blob.size > 500 * 1024) {
+          showToast("Attachment too large for offline mode (>500KB). Please connect to storage or select a smaller file.");
+          return;
+        }
+
         const reader = new FileReader();
         reader.onloadend = () => {
           const base64Uri = reader.result as string;

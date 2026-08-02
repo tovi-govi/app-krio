@@ -100,9 +100,39 @@ export function calculateDeliveryRowAmount(
   return canAmount + c200Amount + c500Amount + c1lAmount;
 }
 
+export function calculateSingleDeliveryAmount(
+  delivery: DeliveryRecord,
+  org?: Organization | null,
+  products?: Product[]
+): number {
+  const fullCans = Math.max(0, Number(delivery.fullCansLoaded) || 0);
+  const c200 = Math.max(0, Number(delivery.cases200mlDelivered) || 0);
+  const c500 = Math.max(0, Number(delivery.cases500mlDelivered) || 0);
+  const c1l = Math.max(0, Number(delivery.cases1lDelivered) || 0);
+
+  const snapshot = delivery.unitPrices;
+
+  const p20lProd = products?.find((p) => p.id === "20l" || p.size.toLowerCase().includes("20l"));
+  const p200Prod = products?.find((p) => p.id === "200ml" || p.size.toLowerCase().includes("200ml"));
+  const p500Prod = products?.find((p) => p.id === "500ml" || p.size.toLowerCase().includes("500ml"));
+  const p1lProd = products?.find((p) => p.id === "1l" || p.size.toLowerCase().includes("1l") || p.size.toLowerCase().includes("litre"));
+
+  const p20lPrice = snapshot?.["20l"] !== undefined ? snapshot["20l"] : getOrganizationProductPrice(org, p20lProd || "20l", DEFAULT_CAN_20L_PRICE);
+  const p200Price = snapshot?.["200ml"] !== undefined ? snapshot["200ml"] : getOrganizationProductPrice(org, p200Prod || "200ml", DEFAULT_200ML_PRICE);
+  const p500Price = snapshot?.["500ml"] !== undefined ? snapshot["500ml"] : getOrganizationProductPrice(org, p500Prod || "500ml", DEFAULT_500ML_PRICE);
+  const p1lPrice = snapshot?.["1l"] !== undefined ? snapshot["1l"] : getOrganizationProductPrice(org, p1lProd || "1l", DEFAULT_1L_PRICE);
+
+  const canAmount = fullCans * p20lPrice;
+  const c200Amount = c200 * (35 * p200Price);
+  const c500Amount = c500 * (24 * p500Price);
+  const c1lAmount = c1l * (12 * p1lPrice);
+
+  return canAmount + c200Amount + c500Amount + c1lAmount;
+}
+
 /**
  * Filters delivery records by month, year, and optional organization,
- * then aggregates totals per organization using organization-specific product prices.
+ * then aggregates totals per organization using organization-specific product prices or stored price snapshots.
  */
 export function aggregateMonthlyDeliveries(
   params: InvoiceAggregationParams
@@ -160,6 +190,7 @@ export function aggregateMonthlyDeliveries(
     const c1l = Number(delivery.cases1lDelivered) || 0;
 
     const org = findOrgForDelivery(delivery);
+    const deliveryAmount = calculateSingleDeliveryAmount(delivery, org, products);
 
     if (existing) {
       if (!existing.gstNumber && org?.gstNumber) existing.gstNumber = org.gstNumber;
@@ -168,14 +199,7 @@ export function aggregateMonthlyDeliveries(
       existing.cases200ml += c200;
       existing.cases500ml += c500;
       existing.cases1l += c1l;
-      existing.amount = calculateDeliveryRowAmount(
-        existing.cansDelivered,
-        existing.cases200ml,
-        existing.cases500ml,
-        existing.cases1l,
-        org,
-        products
-      );
+      existing.amount += deliveryAmount;
     } else {
       orgMap.set(orgName, {
         organizationId: delivery.organizationId,
@@ -186,7 +210,7 @@ export function aggregateMonthlyDeliveries(
         cases200ml: c200,
         cases500ml: c500,
         cases1l: c1l,
-        amount: calculateDeliveryRowAmount(fullCans, c200, c500, c1l, org, products),
+        amount: deliveryAmount,
       });
     }
   }

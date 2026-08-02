@@ -15,7 +15,9 @@ import {
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
-import { db, isFirebaseConfigured } from "@/services/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { deleteObject, ref } from "firebase/storage";
+import { auth, db, isFirebaseConfigured, storage } from "@/services/firebase";
 
 export type Product = {
   id: string;
@@ -131,6 +133,8 @@ export type DeliveryRecord = {
   cases200mlDelivered?: number;
   cases500mlDelivered?: number;
   cases1lDelivered?: number;
+  unitPrices?: Record<string, number>;
+  scheduleId?: string;
   deliveredBy: string;
   createdAt: string;
   updatedAt?: string;
@@ -220,6 +224,7 @@ type CartContextValue = {
   updatePlantInventory: (plantId: string, inventory: Record<string, number>) => Promise<void>;
   addDeliveryRecord: (delivery: DeliveryRecord) => Promise<void>;
   updateDeliveryRecord: (deliveryId: string, updatedData: Partial<DeliveryRecord>, editedBy: string) => Promise<void>;
+  deleteDeliveryRecord: (deliveryId: string, deletedBy: string) => Promise<void>;
   addOrUpdateSchedule: (data: Partial<DeliverySchedule> & { organizationId: string; organizationName: string; scheduledDate: string }) => Promise<string>;
   rescheduleOrganization: (scheduleId: string, newDate: string, newOrder?: number) => Promise<void>;
   deleteSchedule: (scheduleId: string) => Promise<void>;
@@ -453,6 +458,16 @@ function normalizeDeliveryRecord(id: string, data: any): DeliveryRecord {
       ? new Date(createdAtRaw.toMillis()).toISOString()
       : String(createdAtRaw ?? new Date().toISOString());
 
+  const rawPrices = data.unitPrices && typeof data.unitPrices === "object" ? data.unitPrices : undefined;
+  const unitPrices: Record<string, number> | undefined = rawPrices
+    ? {
+        "20l": Number(rawPrices["20l"] ?? 0),
+        "200ml": Number(rawPrices["200ml"] ?? 0),
+        "500ml": Number(rawPrices["500ml"] ?? 0),
+        "1l": Number(rawPrices["1l"] ?? 0),
+      }
+    : undefined;
+
   return {
     id,
     organizationId: data.organizationId || undefined,
@@ -465,6 +480,8 @@ function normalizeDeliveryRecord(id: string, data: any): DeliveryRecord {
     cases200mlDelivered: Number(data.cases200mlDelivered ?? 0),
     cases500mlDelivered: Number(data.cases500mlDelivered ?? 0),
     cases1lDelivered: Number(data.cases1lDelivered ?? 0),
+    unitPrices,
+    scheduleId: data.scheduleId ? String(data.scheduleId) : undefined,
     deliveredBy: String(data.deliveredBy ?? ""),
     createdAt,
     updatedAt: data.updatedAt,
@@ -533,35 +550,37 @@ function normalizeExpense(id: string, data: any): Expense {
 }
 
 function cleanFirestoreData<T>(value: T, seen = new WeakSet<object>(), depth = 0): T {
-  if (depth > 12) return value;
+  if (depth > 10) return value;
   if (value === null || value === undefined) return value;
   if (typeof value !== "object") return value;
   if (value instanceof Date) return value;
+
+  const proto = Object.getPrototypeOf(value);
+  const isPlainObject = proto === null || proto === Object.prototype;
+  const isArray = Array.isArray(value);
+
+  if (!isPlainObject && !isArray) {
+    return value;
+  }
+
   if (seen.has(value as object)) return value;
-
-  const tag = Object.prototype.toString.call(value);
-  if (tag !== "[object Object]" && tag !== "[object Array]") {
-    return value;
-  }
-
-  if (value.constructor && value.constructor.name !== "Object" && value.constructor.name !== "Array") {
-    return value;
-  }
-
   seen.add(value as object);
 
-  if (Array.isArray(value)) {
-    return value.map((item) => cleanFirestoreData(item, seen, depth + 1)) as any;
+  if (isArray) {
+    return (value as any[]).map((item) => cleanFirestoreData(item, seen, depth + 1)) as any;
   }
 
-  return Object.entries(value).reduce((result, [key, entryValue]) => {
-    if (entryValue === undefined) return result;
-    const cleanedValue = cleanFirestoreData(entryValue, seen, depth + 1);
-    if (cleanedValue !== undefined) {
-      (result as any)[key] = cleanedValue;
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(value as object)) {
+    const entryValue = (value as any)[key];
+    if (entryValue !== undefined) {
+      const cleaned = cleanFirestoreData(entryValue, seen, depth + 1);
+      if (cleaned !== undefined) {
+        result[key] = cleaned;
+      }
     }
-    return result;
-  }, {} as Record<string, unknown>) as any;
+  }
+  return result as any;
 }
 
 async function seedDefaultProductsIfEmpty() {
@@ -604,8 +623,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       const savedNotifications = await AsyncStorage.getItem(NOTIFICATIONS_KEY);
       if (savedProducts) setProducts(JSON.parse(savedProducts));
       if (savedCart) setCart(JSON.parse(savedCart));
-      if (!firebaseReady && savedOrders) setOrders(JSON.parse(savedOrders));
-      if (!firebaseReady && savedDeliveries) setDeliveries(JSON.parse(savedDeliveries));
+      if (savedOrders) setOrders(JSON.parse(savedOrders));
+      if (savedDeliveries) setDeliveries(JSON.parse(savedDeliveries));
       if (savedSchedules) setDeliverySchedules(JSON.parse(savedSchedules));
       if (savedOrganizations) setOrganizations(JSON.parse(savedOrganizations));
       if (savedPlants) setPlants(JSON.parse(savedPlants));
@@ -615,109 +634,128 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, [firebaseReady]);
 
   useEffect(() => {
-    if (!firebaseReady || !db) return;
+    if (!firebaseReady || !db || !auth) return;
 
-    seedDefaultProductsIfEmpty().catch((error) => {
-      console.warn("Could not seed products", error);
-    });
+    let unsubProducts: (() => void) | null = null;
+    let unsubOrders: (() => void) | null = null;
+    let unsubDeliveries: (() => void) | null = null;
+    let unsubSchedules: (() => void) | null = null;
+    let unsubNotifications: (() => void) | null = null;
+    let unsubOrganizations: (() => void) | null = null;
+    let unsubPlants: (() => void) | null = null;
+    let unsubExpenses: (() => void) | null = null;
+    let unsubExpenseCategories: (() => void) | null = null;
 
-    const unsubProducts = onSnapshot(collection(db, "products"), (snapshot) => {
-      const nextProducts = snapshot.docs
-        .map((item) => normalizeProduct(item.id, item.data()))
-        .sort((a, b) => a.size.localeCompare(b.size));
-      if (nextProducts.length > 0) setProducts(nextProducts);
-    }, (error) => {
-      console.warn("[CartContext] Firestore products listener error:", error);
-    });
+    const cleanupSubscribers = () => {
+      if (unsubProducts) { unsubProducts(); unsubProducts = null; }
+      if (unsubOrders) { unsubOrders(); unsubOrders = null; }
+      if (unsubDeliveries) { unsubDeliveries(); unsubDeliveries = null; }
+      if (unsubSchedules) { unsubSchedules(); unsubSchedules = null; }
+      if (unsubNotifications) { unsubNotifications(); unsubNotifications = null; }
+      if (unsubOrganizations) { unsubOrganizations(); unsubOrganizations = null; }
+      if (unsubPlants) { unsubPlants(); unsubPlants = null; }
+      if (unsubExpenses) { unsubExpenses(); unsubExpenses = null; }
+      if (unsubExpenseCategories) { unsubExpenseCategories(); unsubExpenseCategories = null; }
+    };
 
-    const unsubOrders = onSnapshot(collection(db, "orders"), (snapshot) => {
-      const nextOrders = snapshot.docs
-        .map((item) => normalizeOrder(item.id, item.data()))
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setOrders(nextOrders);
-    }, (error) => {
-      console.warn("[CartContext] Firestore orders listener error:", error);
-    });
+    const unsubAuth = onAuthStateChanged(auth, (authUser) => {
+      cleanupSubscribers();
 
-    const unsubDeliveries = onSnapshot(query(collection(db, "deliveries"), limit(200)), (snapshot) => {
-      const nextDeliveries = snapshot.docs
-        .map((item) => normalizeDeliveryRecord(item.id, item.data()))
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      console.log(`[CartContext] Received real-time deliveries update: ${nextDeliveries.length} record(s)`);
-      setDeliveries(nextDeliveries);
-    }, (error) => {
-      console.warn("[CartContext] Firestore deliveries listener error:", error);
-    });
+      if (!authUser) return; // Unauthenticated users don't attach listeners
 
-    const unsubSchedules = onSnapshot(collection(db, "deliverySchedules"), (snapshot) => {
-      const nextSchedules = snapshot.docs
-        .map((item) => normalizeDeliverySchedule(item.id, item.data()))
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      console.log(`[CartContext] Received real-time deliverySchedules update: ${nextSchedules.length} record(s)`);
-      setDeliverySchedules(nextSchedules);
-    }, (error) => {
-      console.warn("[CartContext] Firestore deliverySchedules listener error:", error);
-    });
-
-    const unsubNotifications = onSnapshot(query(collection(db, "adminNotifications"), limit(100)), (snapshot) => {
-      const nextNotifications = snapshot.docs
-        .map((item) => normalizeAdminNotification(item.id, item.data()))
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setAdminNotifications(nextNotifications);
-    }, (error) => {
-      console.warn("[CartContext] Firestore notifications listener error:", error);
-    });
-
-    const unsubOrganizations = onSnapshot(collection(db, "organizations"), (snapshot) => {
-      const nextOrganizations = snapshot.docs
-        .map((item) => normalizeOrganization(item.id, item.data()))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      setOrganizations(nextOrganizations);
-    }, (error) => {
-      console.warn("[CartContext] Firestore organizations listener error:", error);
-    });
-
-    const unsubPlants = onSnapshot(collection(db, "plants"), (snapshot) => {
-      const nextPlants = snapshot.docs
-        .map((item) => normalizePlant(item.id, item.data()))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      if (nextPlants.length > 0) setPlants(nextPlants);
-    }, (error) => {
-      console.warn("[CartContext] Firestore plants listener error:", error);
-    });
-
-    const unsubExpenses = onSnapshot(collection(db, "expenses"), (snapshot) => {
-      const nextExpenses = snapshot.docs
-        .map((item) => normalizeExpense(item.id, item.data()))
-        .sort((a, b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime());
-      setExpenses(nextExpenses);
-    }, (error) => {
-      console.warn("[CartContext] Firestore expenses listener error:", error);
-    });
-
-    const unsubExpenseCategories = onSnapshot(collection(db, "expenseCategories"), (snapshot) => {
-      const customCats = snapshot.docs.map((item) => normalizeExpenseCategory(item.id, item.data()));
-      const combined = [...DEFAULT_EXPENSE_CATEGORIES];
-      customCats.forEach((c) => {
-        if (!combined.some((item) => item.id === c.id)) {
-          combined.push(c);
-        }
+      seedDefaultProductsIfEmpty().catch((error) => {
+        console.warn("Could not seed products", error);
       });
-      setExpenseCategories(combined);
-    }, (error) => {
-      console.warn("[CartContext] Firestore expenseCategories listener error:", error);
+
+      unsubProducts = onSnapshot(collection(db!, "products"), (snapshot) => {
+        const nextProducts = snapshot.docs
+          .map((item) => normalizeProduct(item.id, item.data()))
+          .sort((a, b) => a.size.localeCompare(b.size));
+        if (nextProducts.length > 0) setProducts(nextProducts);
+      }, (error) => {
+        console.warn("[CartContext] Firestore products listener error:", error);
+      });
+
+      unsubOrders = onSnapshot(collection(db!, "orders"), (snapshot) => {
+        const nextOrders = snapshot.docs
+          .map((item) => normalizeOrder(item.id, item.data()))
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setOrders(nextOrders);
+      }, (error) => {
+        console.warn("[CartContext] Firestore orders listener error:", error);
+      });
+
+      unsubDeliveries = onSnapshot(collection(db!, "deliveries"), (snapshot) => {
+        const nextDeliveries = snapshot.docs
+          .map((item) => normalizeDeliveryRecord(item.id, item.data()))
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setDeliveries(nextDeliveries);
+      }, (error) => {
+        console.warn("[CartContext] Firestore deliveries listener error:", error);
+      });
+
+      unsubSchedules = onSnapshot(collection(db!, "deliverySchedules"), (snapshot) => {
+        const nextSchedules = snapshot.docs
+          .map((item) => normalizeDeliverySchedule(item.id, item.data()))
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        setDeliverySchedules(nextSchedules);
+      }, (error) => {
+        console.warn("[CartContext] Firestore deliverySchedules listener error:", error);
+      });
+
+      unsubNotifications = onSnapshot(query(collection(db!, "adminNotifications"), limit(100)), (snapshot) => {
+        const nextNotifications = snapshot.docs
+          .map((item) => normalizeAdminNotification(item.id, item.data()))
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setAdminNotifications(nextNotifications);
+      }, (error) => {
+        console.warn("[CartContext] Firestore notifications listener error:", error);
+      });
+
+      unsubOrganizations = onSnapshot(collection(db!, "organizations"), (snapshot) => {
+        const nextOrganizations = snapshot.docs
+          .map((item) => normalizeOrganization(item.id, item.data()))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setOrganizations(nextOrganizations);
+      }, (error) => {
+        console.warn("[CartContext] Firestore organizations listener error:", error);
+      });
+
+      unsubPlants = onSnapshot(collection(db!, "plants"), (snapshot) => {
+        const nextPlants = snapshot.docs
+          .map((item) => normalizePlant(item.id, item.data()))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        if (nextPlants.length > 0) setPlants(nextPlants);
+      }, (error) => {
+        console.warn("[CartContext] Firestore plants listener error:", error);
+      });
+
+      unsubExpenses = onSnapshot(collection(db!, "expenses"), (snapshot) => {
+        const nextExpenses = snapshot.docs
+          .map((item) => normalizeExpense(item.id, item.data()))
+          .sort((a, b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime());
+        setExpenses(nextExpenses);
+      }, (error) => {
+        console.warn("[CartContext] Firestore expenses listener error:", error);
+      });
+
+      unsubExpenseCategories = onSnapshot(collection(db!, "expenseCategories"), (snapshot) => {
+        const customCats = snapshot.docs.map((item) => normalizeExpenseCategory(item.id, item.data()));
+        const combined = [...DEFAULT_EXPENSE_CATEGORIES];
+        customCats.forEach((c) => {
+          if (!combined.some((item) => item.id === c.id)) {
+            combined.push(c);
+          }
+        });
+        setExpenseCategories(combined);
+      }, (error) => {
+        console.warn("[CartContext] Firestore expenseCategories listener error:", error);
+      });
     });
 
     return () => {
-      unsubProducts();
-      unsubOrders();
-      unsubDeliveries();
-      unsubSchedules();
-      unsubNotifications();
-      unsubOrganizations();
-      unsubPlants();
-      unsubExpenses();
-      unsubExpenseCategories();
+      unsubAuth();
+      cleanupSubscribers();
     };
   }, [firebaseReady]);
 
@@ -856,6 +894,20 @@ export function CartProvider({ children }: { children: ReactNode }) {
     },
     addDeliveryRecord: async (delivery) => {
       console.log(`[CartContext] Saving delivery record:`, delivery);
+
+      const targetOrg = organizations.find((o) => o.id === delivery.organizationId);
+      const prod20l = products.find((p) => p.id === "20l");
+      const prod200ml = products.find((p) => p.id === "200ml");
+      const prod500ml = products.find((p) => p.id === "500ml");
+      const prod1l = products.find((p) => p.id === "1l");
+
+      const snapshotPrices: Record<string, number> = delivery.unitPrices || {
+        "20l": Number(targetOrg?.pricing?.["20l"] ?? prod20l?.price ?? 100),
+        "200ml": Number(targetOrg?.pricing?.["200ml"] ?? prod200ml?.price ?? 300),
+        "500ml": Number(targetOrg?.pricing?.["500ml"] ?? prod500ml?.price ?? 200),
+        "1l": Number(targetOrg?.pricing?.["1l"] ?? prod1l?.price ?? 150),
+      };
+
       const cleanDelivery: DeliveryRecord = {
         id: delivery.id,
         organizationId: delivery.organizationId || undefined,
@@ -868,6 +920,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
         cases200mlDelivered: Number(delivery.cases200mlDelivered) || 0,
         cases500mlDelivered: Number(delivery.cases500mlDelivered) || 0,
         cases1lDelivered: Number(delivery.cases1lDelivered) || 0,
+        unitPrices: snapshotPrices,
+        scheduleId: delivery.scheduleId || undefined,
         deliveredBy: delivery.deliveredBy || "",
         createdAt: delivery.createdAt || new Date().toISOString(),
       };
@@ -881,7 +935,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
         throw new Error("Selected plant facility could not be found.");
       }
 
-      // Required stock deductions per product
       const deductions: { [prodId: string]: { size: string; count: number } } = {
         "20l": { size: "20L Can", count: cleanDelivery.fullCansLoaded },
         "200ml": { size: "200ml Pack", count: (cleanDelivery.cases200mlDelivered || 0) * 35 },
@@ -889,7 +942,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
         "1l": { size: "1L Case", count: (cleanDelivery.cases1lDelivered || 0) * 12 },
       };
 
-      // Validate stock availability at selected plant
       for (const [prodId, info] of Object.entries(deductions)) {
         if (info.count > 0) {
           const prodObj = products.find((p) => p.id === prodId);
@@ -902,7 +954,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Compute updated inventory map for selected plant
       const updatedPlantInventory: Record<string, number> = { ...(targetPlant.inventory || {}) };
       for (const [prodId, info] of Object.entries(deductions)) {
         if (info.count > 0) {
@@ -924,7 +975,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
           const currentInv: Record<string, number> = currentPlantData.inventory || {};
           const updatedInv: Record<string, number> = { ...currentInv };
 
-          // Validate and compute plant inventory inside transaction
           for (const [prodId, info] of Object.entries(deductions)) {
             if (info.count > 0) {
               const avail = Number(currentInv[prodId] ?? 0);
@@ -952,6 +1002,20 @@ export function CartProvider({ children }: { children: ReactNode }) {
             updatedAt: serverTimestamp(),
           });
 
+          if (cleanDelivery.scheduleId) {
+            const scheduleRef = doc(db!, "deliverySchedules", cleanDelivery.scheduleId);
+            transaction.set(
+              scheduleRef,
+              {
+                status: "Completed",
+                completedAt: cleanDelivery.createdAt,
+                completedBy: cleanDelivery.deliveredBy,
+                updatedAt: serverTimestamp(),
+              },
+              { merge: true }
+            );
+          }
+
           const notificationRef = doc(db!, "adminNotifications", `delivery-${delivery.id}`);
           const notificationMsg = `${delivery.deliveredBy} recorded delivery for ${delivery.organizationName || "Organization"} from ${targetPlant.name}.`;
           transaction.set(
@@ -978,6 +1042,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
         setPlants((current) =>
           current.map((p) => (p.id === targetPlant.id ? { ...p, inventory: updatedPlantInventory } : p))
         );
+        if (cleanDelivery.scheduleId) {
+          setDeliverySchedules((current) =>
+            current.map((s) =>
+              s.id === cleanDelivery.scheduleId
+                ? { ...s, status: "Completed", completedAt: cleanDelivery.createdAt, completedBy: cleanDelivery.deliveredBy }
+                : s
+            )
+          );
+        }
       }
     },
     updateDeliveryRecord: async (deliveryId, updatedData, editedBy) => {
@@ -986,12 +1059,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
         throw new Error("Original delivery record not found or was removed in another session.");
       }
 
-      const plantId = updatedData.plantId || existingDelivery.plantId;
-      if (!plantId) {
+      const oldPlantId = existingDelivery.plantId;
+      const newPlantId = updatedData.plantId || existingDelivery.plantId;
+      if (!newPlantId) {
         throw new Error("Target plant facility is missing.");
       }
 
-      const targetPlant = plants.find((p) => p.id === plantId);
+      const targetPlant = plants.find((p) => p.id === newPlantId);
       if (!targetPlant) {
         throw new Error("Selected plant facility could not be found.");
       }
@@ -1031,28 +1105,81 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
       if (firebaseReady && db) {
         await runTransaction(db, async (transaction) => {
-          const plantRef = doc(db!, "plants", targetPlant.id);
-          const plantSnap = await transaction.get(plantRef);
-          if (!plantSnap.exists()) {
-            throw new Error(`Plant facility ${targetPlant.name} not found.`);
-          }
+          const isSamePlant = !oldPlantId || oldPlantId === newPlantId;
 
-          const currentPlantData = plantSnap.data();
-          const currentInv: Record<string, number> = currentPlantData.inventory || {};
-          const updatedInv: Record<string, number> = { ...currentInv };
-
-          const prodInfo: Record<string, string> = { "20l": "20L Can", "200ml": "200ml Pack", "500ml": "500ml Case", "1l": "1L Case" };
-          for (const [prodId, newDeduction] of Object.entries(newCounts)) {
-            const oldDeduction = oldCounts[prodId] || 0;
-            const diff = newDeduction - oldDeduction;
-            const currentStock = Number(currentInv[prodId] ?? 0);
-
-            if (diff > 0 && currentStock < diff) {
-              throw new Error(
-                `Insufficient stock at ${targetPlant.name} for ${prodInfo[prodId]}. Available: ${currentStock}, Additional needed: ${diff}`
-              );
+          if (isSamePlant) {
+            const plantRef = doc(db!, "plants", targetPlant.id);
+            const plantSnap = await transaction.get(plantRef);
+            if (!plantSnap.exists()) {
+              throw new Error(`Plant facility ${targetPlant.name} not found.`);
             }
-            updatedInv[prodId] = Math.max(0, currentStock - diff);
+
+            const currentInv: Record<string, number> = plantSnap.data().inventory || {};
+            const updatedInv: Record<string, number> = { ...currentInv };
+
+            const prodInfo: Record<string, string> = { "20l": "20L Can", "200ml": "200ml Pack", "500ml": "500ml Case", "1l": "1L Case" };
+            for (const [prodId, newDeduction] of Object.entries(newCounts)) {
+              const oldDeduction = oldCounts[prodId] || 0;
+              const diff = newDeduction - oldDeduction;
+              const currentStock = Number(currentInv[prodId] ?? 0);
+
+              if (diff > 0 && currentStock < diff) {
+                throw new Error(
+                  `Insufficient stock at ${targetPlant.name} for ${prodInfo[prodId]}. Available: ${currentStock}, Additional needed: ${diff}`
+                );
+              }
+              updatedInv[prodId] = Math.max(0, currentStock - diff);
+            }
+
+            transaction.update(plantRef, {
+              inventory: updatedInv,
+              updatedAt: serverTimestamp(),
+            });
+          } else {
+            const oldPlantRef = doc(db!, "plants", oldPlantId);
+            const newPlantRef = doc(db!, "plants", targetPlant.id);
+
+            const oldPlantSnap = await transaction.get(oldPlantRef);
+            const newPlantSnap = await transaction.get(newPlantRef);
+
+            if (oldPlantSnap.exists()) {
+              const oldInv: Record<string, number> = oldPlantSnap.data().inventory || {};
+              const updatedOldInv: Record<string, number> = { ...oldInv };
+              for (const [prodId, count] of Object.entries(oldCounts)) {
+                if (count > 0) {
+                  updatedOldInv[prodId] = Number(updatedOldInv[prodId] ?? 0) + count;
+                }
+              }
+              transaction.update(oldPlantRef, {
+                inventory: updatedOldInv,
+                updatedAt: serverTimestamp(),
+              });
+            }
+
+            if (!newPlantSnap.exists()) {
+              throw new Error(`Target plant facility ${targetPlant.name} not found.`);
+            }
+
+            const newInv: Record<string, number> = newPlantSnap.data().inventory || {};
+            const updatedNewInv: Record<string, number> = { ...newInv };
+            const prodInfo: Record<string, string> = { "20l": "20L Can", "200ml": "200ml Pack", "500ml": "500ml Case", "1l": "1L Case" };
+
+            for (const [prodId, count] of Object.entries(newCounts)) {
+              if (count > 0) {
+                const currentStock = Number(newInv[prodId] ?? 0);
+                if (currentStock < count) {
+                  throw new Error(
+                    `Insufficient stock at ${targetPlant.name} for ${prodInfo[prodId]}. Available: ${currentStock}, Required: ${count}`
+                  );
+                }
+                updatedNewInv[prodId] = Math.max(0, currentStock - count);
+              }
+            }
+
+            transaction.update(newPlantRef, {
+              inventory: updatedNewInv,
+              updatedAt: serverTimestamp(),
+            });
           }
 
           const deliveryRef = doc(db!, "deliveries", deliveryId);
@@ -1065,19 +1192,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
             { merge: true }
           );
 
-          transaction.update(plantRef, {
-            inventory: updatedInv,
-            updatedAt: serverTimestamp(),
-          });
-
           const notificationRef = doc(db!, "adminNotifications", `delivery-edit-${deliveryId}-${Date.now()}`);
-          const notificationMsg = `${editedBy} edited delivery for ${updatedDelivery.organizationName || "Organization"} (Cans: ${existingDelivery.fullCansLoaded} ➔ ${newFullCans}).`;
+          const notificationMsg = `${editedBy} edited delivery for ${updatedDelivery.organizationName || "Organization"}.`;
           transaction.set(
             notificationRef,
             {
               ...cleanFirestoreData({
                 orderId: deliveryId,
-                title: "Delivery Record Edited ✏️",
+                title: "Delivery Record Updated",
                 message: notificationMsg,
                 customerName: updatedDelivery.organizationName || "Organization",
                 customerPhone: "",
@@ -1092,7 +1214,83 @@ export function CartProvider({ children }: { children: ReactNode }) {
           );
         });
       } else {
-        setDeliveries((current) => current.map((d) => (d.id === deliveryId ? updatedDelivery : d)));
+        setDeliveries((current) =>
+          current.map((item) => (item.id === deliveryId ? updatedDelivery : item))
+        );
+      }
+    },
+    deleteDeliveryRecord: async (deliveryId, deletedBy) => {
+      const existingDelivery = deliveries.find((d) => d.id === deliveryId);
+      if (!existingDelivery) return;
+
+      const plantId = existingDelivery.plantId;
+      const targetPlant = plantId ? plants.find((p) => p.id === plantId) : null;
+
+      const restoreCounts: Record<string, number> = {
+        "20l": Number(existingDelivery.fullCansLoaded || 0),
+        "200ml": Number(existingDelivery.cases200mlDelivered || 0) * 35,
+        "500ml": Number(existingDelivery.cases500mlDelivered || 0) * 24,
+        "1l": Number(existingDelivery.cases1lDelivered || 0) * 12,
+      };
+
+      if (firebaseReady && db) {
+        await runTransaction(db, async (transaction) => {
+          const deliveryRef = doc(db!, "deliveries", deliveryId);
+
+          if (targetPlant) {
+            const plantRef = doc(db!, "plants", targetPlant.id);
+            const plantSnap = await transaction.get(plantRef);
+            if (plantSnap.exists()) {
+              const currentInv = plantSnap.data().inventory || {};
+              const updatedInv = { ...currentInv };
+              for (const [prodId, count] of Object.entries(restoreCounts)) {
+                if (count > 0) {
+                  updatedInv[prodId] = Number(updatedInv[prodId] ?? 0) + count;
+                }
+              }
+              transaction.update(plantRef, {
+                inventory: updatedInv,
+                updatedAt: serverTimestamp(),
+              });
+            }
+          }
+
+          transaction.delete(deliveryRef);
+
+          const notificationRef = doc(db!, "adminNotifications", `delivery-del-${deliveryId}-${Date.now()}`);
+          transaction.set(
+            notificationRef,
+            {
+              ...cleanFirestoreData({
+                orderId: deliveryId,
+                title: "Delivery Record Deleted",
+                message: `${deletedBy} deleted delivery record for ${existingDelivery.organizationName || "Organization"}.`,
+                customerName: existingDelivery.organizationName || "Organization",
+                customerPhone: "",
+                total: 0,
+                read: false,
+                type: "NEW_ORDER",
+                createdAt: new Date().toISOString(),
+              }),
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+        });
+      } else {
+        setDeliveries((current) => current.filter((d) => d.id !== deliveryId));
+        if (targetPlant) {
+          setPlants((current) =>
+            current.map((p) => {
+              if (p.id !== targetPlant.id) return p;
+              const updatedInv = { ...(p.inventory || {}) };
+              for (const [prodId, count] of Object.entries(restoreCounts)) {
+                updatedInv[prodId] = (updatedInv[prodId] ?? 0) + count;
+              }
+              return { ...p, inventory: updatedInv };
+            })
+          );
+        }
       }
     },
     saveOrganization: async (organization) => {
@@ -1343,7 +1541,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
       }
     },
     deleteExpense: async (id) => {
+      const targetExpense = expenses.find((e) => e.id === id);
       if (firebaseReady && db) {
+        if (storage && targetExpense?.receiptUrl && targetExpense.receiptUrl.includes("firebasestorage")) {
+          try {
+            const receiptRef = ref(storage, targetExpense.receiptUrl);
+            await deleteObject(receiptRef).catch(() => undefined);
+          } catch (err) {
+            console.warn("[CartContext] Expense receipt storage deletion warning:", err);
+          }
+        }
         await deleteDoc(doc(db, "expenses", id));
       } else {
         setExpenses((prev) => prev.filter((item) => item.id !== id));
