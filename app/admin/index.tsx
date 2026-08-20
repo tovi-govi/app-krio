@@ -75,6 +75,7 @@ export default function AdminHomeScreen() {
       totalProducts: products.length,
       totalOrders: orders.length,
       totalDeliveries: deliveries.length,
+      totalCansDelivered: fullFromOrders + fullFromDeliveries,
       totalPlants: plants.length,
       fullWaterCans: fullFromOrders + fullFromDeliveries,
       emptyWaterCans: emptyFromDeliveries + emptyFromOrders,
@@ -156,7 +157,7 @@ export default function AdminHomeScreen() {
         <View style={styles.statsGrid}>
           <Stat label="Products" value={String(homeStats.totalProducts)} />
           <Stat label="Orders" value={String(homeStats.totalOrders)} />
-          <Stat label="Deliveries" value={String(homeStats.totalDeliveries)} />
+          <Stat label="Cans Delivered" value={homeStats.totalCansDelivered.toLocaleString("en-IN")} />
           <Stat label="Expenses (Month)" value={`₹${homeStats.monthlyExpensesTotal.toLocaleString("en-IN")}`} onPress={() => router.push("/admin/expenses")} />
         </View>
 

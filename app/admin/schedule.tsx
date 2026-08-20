@@ -9,6 +9,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
@@ -50,6 +51,9 @@ function getTodayKey(): string {
 }
 
 export default function ScheduleScreen() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 768;
+
   const { organizations, deliverySchedules, addOrUpdateSchedule, rescheduleOrganization, deleteSchedule, firebaseReady } = useCart();
 
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
@@ -380,9 +384,9 @@ export default function ScheduleScreen() {
         </LinearGradient>
 
         {/* Main Workspace Layout */}
-        <View style={styles.workspace}>
+        <View style={[styles.workspace, isMobile && styles.workspaceMobile]}>
           {/* Calendar Section (Left / Top) */}
-          <View style={styles.calendarCard}>
+          <View style={[styles.calendarCard, isMobile && styles.calendarCardMobile]}>
             {/* Calendar Controls */}
             <View style={styles.calendarHeader}>
               <View style={styles.monthNav}>
@@ -533,7 +537,7 @@ export default function ScheduleScreen() {
           </View>
 
           {/* Unscheduled / Organizations Panel (Right / Bottom) */}
-          <View style={styles.sidebarCard}>
+          <View style={[styles.sidebarCard, isMobile && styles.sidebarCardMobile]}>
             <View style={styles.sidebarHeader}>
               <Building2 size={18} color={Colors.primary} />
               <Text style={styles.sidebarTitle}>Partner Organizations</Text>
@@ -560,7 +564,13 @@ export default function ScheduleScreen() {
             </View>
 
             {/* List of Organizations */}
-            <ScrollView style={styles.orgList} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              style={styles.orgList}
+              contentContainerStyle={styles.orgListContent}
+              nestedScrollEnabled={true}
+              showsVerticalScrollIndicator={true}
+              keyboardShouldPersistTaps="handled"
+            >
               {filteredOrganizations.length === 0 ? (
                 <View style={styles.emptyState}>
                   <Building2 size={32} color={Colors.muted} />
@@ -574,7 +584,7 @@ export default function ScheduleScreen() {
                   );
                   const isPastSelected = selectedDateKey < todayKey;
 
-                  const webOrgProps = Platform.OS === "web" ? {
+                  const webOrgProps = Platform.OS === "web" && !isMobile ? {
                     draggable: true,
                     onDragStart: (e: any) =>
                       handleWebDragStart(e, {
@@ -928,18 +938,25 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   workspace: {
-    flexDirection: Platform.OS === "web" ? "row" : "column",
+    flexDirection: "row",
     gap: 16,
     marginBottom: 16,
   },
+  workspaceMobile: {
+    flexDirection: "column",
+  },
   calendarCard: {
-    flex: Platform.OS === "web" ? 3 : 1,
+    flex: 3,
     backgroundColor: Colors.card,
     borderRadius: Radius.lg,
     padding: 16,
     borderWidth: 1,
     borderColor: Colors.border,
     ...Shadow.card,
+  },
+  calendarCardMobile: {
+    flex: undefined,
+    width: "100%",
   },
   calendarHeader: {
     flexDirection: "row",
@@ -1106,13 +1123,17 @@ const styles = StyleSheet.create({
 
   // Sidebar Organizations Card
   sidebarCard: {
-    flex: Platform.OS === "web" ? 1.4 : 1,
+    flex: 1.4,
     backgroundColor: Colors.card,
     borderRadius: Radius.lg,
     padding: 16,
     borderWidth: 1,
     borderColor: Colors.border,
     ...Shadow.card,
+  },
+  sidebarCardMobile: {
+    flex: undefined,
+    width: "100%",
   },
   sidebarHeader: {
     flexDirection: "row",
@@ -1146,6 +1167,17 @@ const styles = StyleSheet.create({
   },
   orgList: {
     maxHeight: 450,
+    ...(Platform.OS === "web"
+      ? ({
+          overflowY: "auto",
+          touchAction: "pan-y",
+          WebkitOverflowScrolling: "touch",
+        } as any)
+      : {}),
+  },
+  orgListContent: {
+    paddingBottom: 8,
+    flexGrow: 1,
   },
   emptyState: {
     alignItems: "center",
@@ -1167,7 +1199,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 1,
     borderColor: Colors.border,
-    ...(Platform.OS === "web" ? { cursor: "grab", userSelect: "none" } as any : {}),
+    ...(Platform.OS === "web"
+      ? ({
+          touchAction: "pan-y",
+        } as any)
+      : {}),
   },
   orgInfo: {
     flex: 1,
@@ -1194,6 +1230,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.primary,
     backgroundColor: Colors.card,
+    ...(Platform.OS === "web"
+      ? ({
+          touchAction: "manipulation",
+        } as any)
+      : {}),
   },
   assignBtnActive: {
     backgroundColor: Colors.primary,

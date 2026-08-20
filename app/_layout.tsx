@@ -5,6 +5,10 @@ import { StatusBar } from "expo-status-bar";
 import * as SplashScreen from "expo-splash-screen";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { CartProvider } from "@/context/CartContext";
+import SuspendedScreen from "@/components/SuspendedScreen";
+
+// FLAG TO CONTROL APP SUSPENSION. SET TO false TO RESTORE APP ACCESS.
+const IS_APP_SUSPENDED = false;
 
 if (Platform.OS !== "web") {
   try {
@@ -19,6 +23,15 @@ export const unstable_settings = {
 };
 
 export default function RootLayout() {
+  if (IS_APP_SUSPENDED) {
+    return (
+      <>
+        <StatusBar style="light" />
+        <SuspendedScreen />
+      </>
+    );
+  }
+
   return (
     <AuthProvider>
       <CartProvider>
